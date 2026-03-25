@@ -9,6 +9,7 @@ const TABS = {
 }
 
 const fmt = n => n?.toLocaleString('vi-VN') ?? '—'
+const toVN = d => d ? new Date(d).toLocaleString('vi-VN', { hour:'2-digit', minute:'2-digit', day:'2-digit', month:'2-digit' }) : '—'
 
 function ChangeTag({ val, suffix = '' }) {
   const cls = val > 0 ? 'tag-up' : val < 0 ? 'tag-down' : 'tag-flat'
@@ -129,13 +130,24 @@ function ShopTab({ agents }) {
   if (products.length === 0) return <div className="fu d1" style={{textAlign:'center', padding:40, color:'var(--txt3)'}}>Chưa có mặt hàng nào được đăng.</div>
   
   return (
-    <div className="fu d1" style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:10}}>
+    <div className="grid-shop fu d1">
       {products.map((p, i) => (
-        <div key={p.id || i} className="card" style={{padding: 12}}>
-          <div style={{fontSize: 24, textAlign:'center', margin:'10px 0'}}>🛍️</div>
-          <div style={{fontSize:13, fontWeight:700, lineHeight: 1.3}}>{p.name}</div>
-          <div style={{fontSize:11, color:'var(--txt2)', margin:'4px 0'}}>{p.agentName}</div>
-          <div style={{fontSize:14, color:'var(--green)', fontWeight:700}}>{fmt(p.price)}đ</div>
+        <div key={p.id || i} className="product-card">
+          <div className="product-img-wrap">
+            {p.image_url ? (
+              <img src={p.image_url} alt={p.name} className="product-img" />
+            ) : (
+              <div className="product-img-placeholder">📦</div>
+            )}
+          </div>
+          <div className="product-info">
+            <div className="product-name">{p.name}</div>
+            <div className="product-agent">{p.agentName}</div>
+            <div className="product-bottom">
+              <div className="product-price">{fmt(p.price)}đ</div>
+              <div className="product-unit">/{p.unit}</div>
+            </div>
+          </div>
         </div>
       ))}
     </div>
@@ -210,6 +222,41 @@ export default function HomePage() {
   
   const [userName, setUserName] = useState(() => localStorage.getItem('agribot_user'))
   const [isLoggedIn, setIsLoggedIn] = useState(() => !!localStorage.getItem('agribot_token'))
+
+  // Notifications
+  const [notifications, setNotifications] = useState([])
+  const [showNotifications, setShowNotifications] = useState(false)
+  const unreadCount = notifications.filter(n => !n.read).length
+
+  const fetchNotifications = async () => {
+    const token = localStorage.getItem('agribot_token')
+    if (!token) return
+    try {
+      const r = await fetch(`${API}/user/notifications`, {
+        headers: { Authorization: `Bearer ${token}` }
+      })
+      if (r.ok) setNotifications(await r.json())
+    } catch {}
+  }
+
+  useEffect(() => {
+    if (isLoggedIn) {
+      fetchNotifications()
+      const id = setInterval(fetchNotifications, 30000)
+      return () => clearInterval(id)
+    }
+  }, [isLoggedIn])
+
+  const markAsRead = async (nid) => {
+    const token = localStorage.getItem('agribot_token')
+    try {
+      await fetch(`${API}/user/notifications/${nid}/read`, {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${token}` }
+      })
+      setNotifications(prev => prev.map(n => n._id === nid ? {...n, read:true} : n))
+    } catch {}
+  }
 
   const [loginPhone, setLoginPhone] = useState('')
   const [loginPass, setLoginPass]   = useState('')
@@ -295,8 +342,8 @@ export default function HomePage() {
   // Fetch quảng cáo
   useEffect(() => {
     fetch(`${API}/ads`)
-      .then(r => r.json())
-      .then(d => setAdData(d))
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d && typeof d === 'object' && !d.detail) setAdData(d) })
       .catch(() => {})
   }, [])
 
@@ -307,8 +354,8 @@ export default function HomePage() {
     const fetchAgents = (lat = null, lng = null) => {
       const url = lat && lng ? `${API}/agents?lat=${lat}&lng=${lng}` : `${API}/agents`
       fetch(url)
-        .then(r => r.json())
-        .then(d => { setAgents(d); setAgentsLoading(false) })
+        .then(r => r.ok ? r.json() : [])
+        .then(d => { setAgents(Array.isArray(d) ? d : []); setAgentsLoading(false) })
         .catch(() => { setLocationErr('Không thể tải danh sách đại lý'); setAgentsLoading(false) })
     }
 
@@ -339,8 +386,8 @@ export default function HomePage() {
   // Fetch tỷ giá
   useEffect(() => {
     fetch(`${API}/exchange-rate`)
-      .then(r => r.json())
-      .then(d => { setUsdVnd(d.usd_vnd); setVcbAt(d.updated_at) })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d && d.usd_vnd) { setUsdVnd(d.usd_vnd); setVcbAt(d.updated_at) } else { setUsdVnd(25450) } })
       .catch(() => setUsdVnd(25450))
   }, [])
 
@@ -348,8 +395,11 @@ export default function HomePage() {
   const loadCoffeePrice = () => {
     setCoffeeLoading(true)
     fetch(`${API}/coffee-price`)
-      .then(r => r.json())
-      .then(d => { setCoffeePrice(d); setCoffeeLoading(false) })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        if (d && d.robusta && d.arabica) { setCoffeePrice(d) }
+        setCoffeeLoading(false)
+      })
       .catch(() => setCoffeeLoading(false))
   }
 
@@ -410,8 +460,33 @@ export default function HomePage() {
         .sb input:focus{border-color:var(--green);}
         .sb input::placeholder{color:var(--txt3);}
         .si{position:absolute;left:11px;top:50%;transform:translateY(-50%);font-size:13px;color:var(--txt3);pointer-events:none;}
+        
+        .btn-bell{width:40px;height:40px;flex-shrink:0;background:var(--bg2);border:1.5px solid var(--bdr);border-radius:50%;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;position:relative;-webkit-tap-highlight-color:transparent;transition:transform .1s;}
+        .btn-bell:active{transform:scale(.92);}
+        .bell-dot{position:absolute;top:8px;right:8px;width:10px;height:10px;background:var(--red);border:2px solid #fff;border-radius:50%;}
+
         .btn-bot{width:40px;height:40px;flex-shrink:0;background:var(--green);border:none;border-radius:50%;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 3px 10px rgba(46,125,50,0.3);-webkit-tap-highlight-color:transparent;transition:transform .15s;}
         .btn-bot:active{transform:scale(.92);}
+
+        .grid-shop{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;}
+        .product-card{background:var(--surf);border:1px solid var(--bdr);border-radius:var(--rs);overflow:hidden;display:flex;flex-direction:column;box-shadow:0 2px 8px rgba(0,0,0,.04);}
+        .product-img-wrap{width:100%;aspect-ratio:1/1;background:var(--bg2);display:flex;align-items:center;justify-content:center;overflow:hidden;}
+        .product-img{width:100%;height:100%;object-fit:cover;}
+        .product-img-placeholder{font-size:32px;opacity:.3;}
+        .product-info{padding:10px;flex:1;display:flex;flex-direction:column;gap:4px;}
+        .product-name{font-size:13px;font-weight:600;color:var(--txt);line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:36px;}
+        .product-agent{font-size:11px;color:var(--txt3);}
+        .product-bottom{display:flex;align-items:baseline;gap:2px;margin-top:auto;}
+        .product-price{font-size:15px;font-weight:800;color:var(--yellow);}
+        .product-unit{font-size:10px;color:var(--txt3);}
+
+        .noti-item{padding:12px;border-bottom:1px solid var(--bdr);display:flex;gap:12px;cursor:pointer;}
+        .noti-item.unread{background:var(--green3);}
+        .noti-ic{width:36px;height:36px;border-radius:50%;background:var(--bg2);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:18px;}
+        .noti-body{flex:1;min-width:0;}
+        .noti-t{font-size:13px;font-weight:700;color:var(--txt);}
+        .noti-b{font-size:12px;color:var(--txt2);margin-top:2px;line-height:1.4;}
+        .noti-time{font-size:10px;color:var(--txt3);margin-top:4px;}
 
         .main{padding:12px 14px;display:flex;flex-direction:column;gap:12px;}
 
@@ -511,11 +586,17 @@ export default function HomePage() {
       <div className="page">
         {/* TOPBAR */}
         <div className="tb">
-          <div className="logo">☕ NNS<small>Giá cà phê Lâm Đồng</small></div>
+          <div className="logo">NNS<small>Nông Nghiệp Số</small></div>
           <div className="sb">
             <span className="si">🔍</span>
-            <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Tìm đại lý, SĐT..." />
+            <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Tìm đại lý, sản phẩm..." />
           </div>
+          {isLoggedIn && (
+            <button className="btn-bell" onClick={() => { setShowNotifications(true); fetchNotifications(); }}>
+              <span>🔔</span>
+              {unreadCount > 0 && <span className="bell-dot" />}
+            </button>
+          )}
           <button className="btn-bot" onClick={()=>navigate('/chat')}>🌿</button>
         </div>
 
@@ -695,6 +776,70 @@ export default function HomePage() {
             <div className="m-title" style={{color:'var(--green)'}}>{adData.popup_title}</div>
             <div className="m-sub" style={{marginBottom: 20}}>{adData.popup_body}</div>
             <button className="m-btn" onClick={()=>{setShowPopup(false); sessionStorage.setItem('nns_ad_seen','1')}}>Đóng thông báo</button>
+          </div>
+        </div>
+      )}
+
+      {/* NOTIFICATIONS MODAL */}
+      {showNotifications && (
+        <div className="overlay" onClick={e=>e.target===e.currentTarget&&setShowNotifications(false)}>
+          <div className="modal" style={{maxHeight:'80dvh',display:'flex',flexDirection:'column'}}>
+            <div className="m-handle" />
+            <div style={{padding:'20px 20px 10px',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+              <h3 style={{fontSize:18}}>Thông báo</h3>
+              <button className="m-x" style={{position:'static'}} onClick={()=>setShowNotifications(false)}>✕</button>
+            </div>
+            <div style={{flex:1,overflowY:'auto',paddingBottom:20}}>
+              {notifications.length === 0 ? (
+                <div style={{textAlign:'center',padding:'40px 20px',color:'var(--txt3)'}}>
+                  <div style={{fontSize:40,marginBottom:10}}>🔔</div>
+                  <div style={{fontSize:14}}>Chưa có thông báo nào</div>
+                </div>
+              ) : (
+                notifications.map(n => (
+                  <div key={n._id} className={`noti-item ${n.read ? '' : 'unread'}`} onClick={() => { markAsRead(n._id); navigate(`/agent/${n.agent_id}`); setShowNotifications(false); }}>
+                    <div className="noti-ic">{n.type === 'price_update' ? '📈' : '📦'}</div>
+                    <div className="noti-body">
+                      <div className="noti-t">{n.title}</div>
+                      <div className="noti-b">{n.body}</div>
+                      <div className="noti-time">{toVN(n.at)}</div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* NOTIFICATIONS MODAL */}
+      {showNotifications && (
+        <div className="overlay" onClick={e=>e.target===e.currentTarget&&setShowNotifications(false)}>
+          <div className="modal" style={{maxHeight:'80dvh',display:'flex',flexDirection:'column'}}>
+            <div className="m-handle" />
+            <div style={{padding:'20px 20px 10px',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+              <h3 style={{fontSize:18}}>Thông báo</h3>
+              <button className="m-x" style={{position:'static'}} onClick={()=>setShowNotifications(false)}>✕</button>
+            </div>
+            <div style={{flex:1,overflowY:'auto',paddingBottom:20}}>
+              {notifications.length === 0 ? (
+                <div style={{textAlign:'center',padding:'40px 20px',color:'var(--txt3)'}}>
+                  <div style={{fontSize:40,marginBottom:10}}>🔔</div>
+                  <div style={{fontSize:14}}>Chưa có thông báo nào</div>
+                </div>
+              ) : (
+                notifications.map(n => (
+                  <div key={n._id} className={`noti-item ${n.read ? '' : 'unread'}`} onClick={() => { markAsRead(n._id); navigate(`/agent/${n.agent_id}`); setShowNotifications(false); }}>
+                    <div className="noti-ic">{n.type === 'price_update' ? '📈' : '📦'}</div>
+                    <div className="noti-body">
+                      <div className="noti-t">{n.title}</div>
+                      <div className="noti-b">{n.body}</div>
+                      <div className="noti-time">{n.at}</div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
           </div>
         </div>
       )}
