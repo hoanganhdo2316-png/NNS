@@ -1,9 +1,7 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 const API = 'https://api.nns.id.vn'
-
-
 
 const TABS = {
   robusta: { label:'Robusta London', sub:'ICE Futures · USD/tấn' },
@@ -22,7 +20,6 @@ function ChangeTag({ val, suffix = '' }) {
   )
 }
 
-// ── Component giá cà phê quốc tế ─────────────────────────
 function CoffeePriceDisplay({ data, loading, usdVnd, vcbAt, tab, onRefresh }) {
   if (loading && !data) return (
     <div style={{textAlign:'center',padding:'32px 0',color:'var(--txt3)',fontSize:13}}>
@@ -45,17 +42,14 @@ function CoffeePriceDisplay({ data, loading, usdVnd, vcbAt, tab, onRefresh }) {
   const bg     = isUp ? 'var(--green3)' : 'var(--red2)'
   const bdr    = isUp ? 'var(--bdr2)'   : '#f5c6c2'
 
-  // Quy đổi VND/kg
   const vnd = usdVnd
     ? tab === 'arabica'
-      ? Math.round(d.price / 100 * 2.20462 * usdVnd)   // USc/lb → VND/kg
-      : Math.round(d.price / 1000 * usdVnd)             // USD/t  → VND/kg
+      ? Math.round(d.price / 100 * 2.20462 * usdVnd)
+      : Math.round(d.price / 1000 * usdVnd)
     : null
 
   return (
     <div style={{display:'flex',flexDirection:'column',gap:8}}>
-
-      {/* Giá quốc tế */}
       <div style={{
         display:'flex',alignItems:'center',justifyContent:'space-between',
         background:bg, border:`1.5px solid ${bdr}`,
@@ -89,7 +83,6 @@ function CoffeePriceDisplay({ data, loading, usdVnd, vcbAt, tab, onRefresh }) {
         </div>
       </div>
 
-      {/* Quy đổi VND + tỷ giá */}
       <div style={{
         display:'flex',alignItems:'center',justifyContent:'space-between',
         background:'var(--bg2)',border:'1.5px solid var(--bdr)',
@@ -113,7 +106,6 @@ function CoffeePriceDisplay({ data, loading, usdVnd, vcbAt, tab, onRefresh }) {
         </div>
       </div>
 
-      {/* Footer */}
       <div style={{display:'flex',alignItems:'center',justifyContent:'space-between'}}>
         <div style={{fontSize:10,color:'var(--txt3)'}}>
           Nguồn: Yahoo Finance · Delay ~15 phút
@@ -132,12 +124,79 @@ function CoffeePriceDisplay({ data, loading, usdVnd, vcbAt, tab, onRefresh }) {
   )
 }
 
+function ShopTab({ agents }) {
+  const products = agents.flatMap(a => (a.products || []).map(p => ({...p, agentName: a.name, agentId: a._id})))
+  if (products.length === 0) return <div className="fu d1" style={{textAlign:'center', padding:40, color:'var(--txt3)'}}>Chưa có mặt hàng nào được đăng.</div>
+  
+  return (
+    <div className="fu d1" style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:10}}>
+      {products.map((p, i) => (
+        <div key={p.id || i} className="card" style={{padding: 12}}>
+          <div style={{fontSize: 24, textAlign:'center', margin:'10px 0'}}>🛍️</div>
+          <div style={{fontSize:13, fontWeight:700, lineHeight: 1.3}}>{p.name}</div>
+          <div style={{fontSize:11, color:'var(--txt2)', margin:'4px 0'}}>{p.agentName}</div>
+          <div style={{fontSize:14, color:'var(--green)', fontWeight:700}}>{fmt(p.price)}đ</div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function AssetsTab({ kg, setKg }) {
+  return (
+    <div className="card fu d1">
+      <h3 style={{fontSize:16, marginBottom:10}}>Tài sản của bạn</h3>
+      <p style={{fontSize:13, color:'var(--txt2)', marginBottom:16}}>
+        Cài đặt khối lượng cà phê sở hữu để tự động quy đổi ra giá trị ước tính dựa trên giá thị trường.
+      </p>
+      <div className="kg-row">
+        <span className="kg-lbl">Khối lượng (kg)</span>
+        <div className="kg-wrap">
+          <input className="kg-inp" type="number" inputMode="numeric" value={kg} onChange={e=>setKg(Number(e.target.value))} min={0} />
+          <span className="kg-unit">kg</span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function SettingsTab({ isLoggedIn, userName, onLoginClick, onLogout }) {
+  return (
+    <div className="card fu d1">
+      <h3 style={{fontSize:16, marginBottom:16}}>Cài đặt tài khoản</h3>
+      {isLoggedIn ? (
+        <>
+          <div style={{display:'flex', alignItems:'center', gap:12, marginBottom: 20}}>
+            <div className="av">{userName ? userName[0].toUpperCase() : 'U'}</div>
+            <div>
+              <div style={{fontWeight:700}}>{userName}</div>
+              <div style={{fontSize:12, color:'var(--green)'}}>Đã đăng nhập</div>
+            </div>
+          </div>
+          <button className="act" style={{width:'100%', borderColor:'var(--red)', color:'var(--red)'}} onClick={onLogout}>
+            Đăng xuất
+          </button>
+        </>
+      ) : (
+        <>
+          <p style={{fontSize:13, color:'var(--txt2)', marginBottom:16}}>Bạn chưa đăng nhập. Đăng nhập để lưu trữ dữ liệu và bảo vệ tài sản.</p>
+          <button className="act" style={{width:'100%', borderColor:'var(--green)', color:'var(--green)'}} onClick={onLoginClick}>
+            Đăng nhập ngay
+          </button>
+        </>
+      )}
+    </div>
+  )
+}
+
 export default function HomePage() {
   const navigate = useNavigate()
+  const [activeTab, setActiveTab]   = useState('market')
   const [showAd, setShowAd]         = useState(true)
   const [tab, setTab]               = useState('robusta')
   const [showLogin, setShowLogin]   = useState(false)
-  const [kg, setKg]                 = useState(1000)
+  
+  const [kg, setKg]                 = useState(() => Number(localStorage.getItem('nns_coffee_kg')) || 0)
   const [search, setSearch]         = useState('')
   const [usdVnd, setUsdVnd]         = useState(null)
   const [vcbAt, setVcbAt]           = useState('')
@@ -146,19 +205,132 @@ export default function HomePage() {
   const [agents, setAgents]         = useState([])
   const [agentsLoading, setAgentsLoading] = useState(true)
   const [locationErr, setLocationErr] = useState('')
+  const [adData, setAdData]         = useState(null)
+  const [showPopup, setShowPopup]   = useState(() => !sessionStorage.getItem('nns_ad_seen'))
+  
+  const [userName, setUserName] = useState(() => localStorage.getItem('agribot_user'))
+  const [isLoggedIn, setIsLoggedIn] = useState(() => !!localStorage.getItem('agribot_token'))
+
+  const [loginPhone, setLoginPhone] = useState('')
+  const [loginPass, setLoginPass]   = useState('')
+  const [loginErr, setLoginErr]     = useState('')
+  const [loginLoading, setLoginLoading] = useState(false)
+  const [isRegistering, setIsRegistering] = useState(false)
+  const [regName, setRegName]       = useState('')
+  const [splash, setSplash]         = useState(true)
+
+  useEffect(() => {
+    const t = setTimeout(() => setSplash(false), 1500)
+    return () => clearTimeout(t)
+  }, [])
+
+  useEffect(() => {
+    localStorage.setItem('nns_coffee_kg', kg)
+  }, [kg])
+
+  const handleLogout = () => {
+    localStorage.removeItem('agribot_token')
+    localStorage.removeItem('agribot_user')
+    setIsLoggedIn(false)
+    setUserName(null)
+  }
+
+  const submitLogin = async () => {
+    setLoginErr('')
+    setLoginLoading(true)
+    try {
+      const data = new URLSearchParams()
+      data.append('username', loginPhone)
+      data.append('password', loginPass)
+      
+      const r = await fetch(`${API}/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: data
+      })
+      const d = await r.json()
+      if (r.ok) {
+        localStorage.setItem('agribot_token', d.access_token)
+        localStorage.setItem('agribot_user', d.ho_ten)
+        setIsLoggedIn(true)
+        setUserName(d.ho_ten)
+        setShowLogin(false)
+        setLoginPhone('')
+        setLoginPass('')
+      } else {
+        setLoginErr(d.detail || 'Đăng nhập thất bại')
+      }
+    } catch {
+      setLoginErr('Không kết nối được server')
+    }
+    setLoginLoading(false)
+  }
+
+  const submitRegister = async () => {
+    setLoginErr('')
+    if (!regName || !loginPhone || !loginPass) {
+      setLoginErr('Vui lòng điền đủ thông tin')
+      return
+    }
+    setLoginLoading(true)
+    try {
+      const r = await fetch(`${API}/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ho_ten: regName, so_dien_thoai: loginPhone, password: loginPass })
+      })
+      const d = await r.json()
+      if (r.ok) {
+        setIsRegistering(false)
+        setLoginErr('✅ Đăng ký thành công! Hãy đăng nhập.')
+      } else {
+        setLoginErr(d.detail || 'Đăng ký thất bại')
+      }
+    } catch {
+      setLoginErr('Không kết nối được server')
+    }
+    setLoginLoading(false)
+  }
+
+  // Fetch quảng cáo
+  useEffect(() => {
+    fetch(`${API}/ads`)
+      .then(r => r.json())
+      .then(d => setAdData(d))
+      .catch(() => {})
+  }, [])
 
   // Fetch danh sách đại lý
   useEffect(() => {
     setAgentsLoading(true)
-    fetch(`${API}/agents`)
-      .then(r => r.json())
-      .then(d => { setAgents(d); setAgentsLoading(false) })
-      .catch(() => { setLocationErr('Không thể tải danh sách đại lý'); setAgentsLoading(false) })
-  }, [])
+    
+    const fetchAgents = (lat = null, lng = null) => {
+      const url = lat && lng ? `${API}/agents?lat=${lat}&lng=${lng}` : `${API}/agents`
+      fetch(url)
+        .then(r => r.json())
+        .then(d => { setAgents(d); setAgentsLoading(false) })
+        .catch(() => { setLocationErr('Không thể tải danh sách đại lý'); setAgentsLoading(false) })
+    }
 
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        pos => {
+          fetchAgents(pos.coords.latitude, pos.coords.longitude)
+        },
+        err => {
+          console.warn('Geolocation error:', err)
+          fetchAgents()
+        },
+        { timeout: 5000, maximumAge: 60000 }
+      )
+    } else {
+      fetchAgents()
+    }
+  }, [])
   
-  const AVG = agents.length > 0
-    ? Math.round(agents.reduce((s, a) => s + (a.price || 0), 0) / agents.filter(a => a.price > 0).length)
+  const validAgents = agents.filter(a => a.price > 0)
+  const AVG = validAgents.length > 0
+    ? Math.round(validAgents.reduce((s, a) => s + (a.price || 0), 0) / validAgents.length)
     : 0
   const PREV = AVG
   const total = kg * AVG
@@ -183,36 +355,35 @@ export default function HomePage() {
 
   useEffect(() => {
     loadCoffeePrice()
-    const id = setInterval(loadCoffeePrice, 5 * 60 * 1000) // tự refresh 5 phút
+    const id = setInterval(loadCoffeePrice, 5 * 60 * 1000)
     return () => clearInterval(id)
   }, [])
 
-  // Login modal sau 15 giây
+  // Login modal
+  useEffect(() => {
+    const isLog = !!localStorage.getItem('agribot_token')
+    if (isLog) return
+    const first = setTimeout(() => setShowLogin(true), 3000)
+    return () => clearTimeout(first)
+  }, [])
 
-useEffect(() => {
-  const isLoggedIn = !!localStorage.getItem('agribot_token')
-  if (isLoggedIn) return
+  useEffect(() => {
+    const isLog = !!localStorage.getItem('agribot_token')
+    if (isLog) return
+    if (showLogin) return
+    const t = setTimeout(() => setShowLogin(true), 15000)
+    return () => clearTimeout(t)
+  }, [showLogin])
 
-  // Lần đầu sau 3s
-  const first = setTimeout(() => setShowLogin(true), 3000)
-  return () => clearTimeout(first)
-}, [])
-
-// Mỗi lần đóng modal → 15s sau nhắc lại
-useEffect(() => {
-  const isLoggedIn = !!localStorage.getItem('agribot_token')
-  if (isLoggedIn) return
-  if (showLogin) return // đang mở thì không cần đặt timer
-
-  const t = setTimeout(() => setShowLogin(true), 15000)
-  return () => clearTimeout(t)
-}, [showLogin])
-
-
-
-
-
-
+  if (splash) return (
+    <div style={{minHeight:'100dvh', background:'#f2f7f2', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', fontFamily:"'Be Vietnam Pro',sans-serif"}}>
+      <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
+      <style>{`@keyframes pulse {0%, 100% {transform: scale(1); opacity:1} 50% {transform: scale(1.05); opacity:0.85}}`}</style>
+      <img src="/icon-192.png" alt="NNS Logo" style={{width:96,height:96,borderRadius:24,boxShadow:'0 8px 24px rgba(0,0,0,.15)',animation:'pulse 1.5s infinite', background:'#fff'}}/>
+      <div style={{fontSize:26, fontWeight:800, color:'#2e7d32', marginTop:24}}>NNS</div>
+      <div style={{fontSize:14, color:'#4a6e4a', marginTop:6}}>Giá cà phê Lâm Đồng</div>
+    </div>
+  )
 
   return (
     <>
@@ -253,7 +424,7 @@ useEffect(() => {
         .ad-x{position:absolute;top:8px;right:10px;background:none;border:none;color:#bca058;font-size:16px;cursor:pointer;padding:4px;-webkit-tap-highlight-color:transparent;}
 
         .card{background:var(--surf);border:1.5px solid var(--bdr);border-radius:var(--r);padding:16px;box-shadow:0 2px 8px rgba(46,125,50,0.06);}
-        .asset-row{display:flex;align-items:center;gap:12px;margin-bottom:14px;}
+        .asset-row{display:flex;align-items:center;gap:12px;}
         .av{width:46px;height:46px;flex-shrink:0;border-radius:50%;background:linear-gradient(135deg,var(--green),var(--green2));display:flex;align-items:center;justify-content:center;font-size:19px;font-weight:800;color:#fff;box-shadow:0 3px 10px rgba(46,125,50,0.3);}
         .asset-meta{flex:1;min-width:0;}
         .asset-name{font-size:15px;font-weight:700;}
@@ -304,6 +475,13 @@ useEffect(() => {
         .ag-num{font-size:14px;font-weight:700;font-family:'JetBrains Mono',monospace;white-space:nowrap;}
         .ag-chg{font-size:11px;font-family:'JetBrains Mono',monospace;margin-top:2px;font-weight:600;}
 
+        /* BOTTOM NAV */
+        .bnav { position:fixed; bottom:0; padding-bottom:env(safe-area-inset-bottom); left:0; right:0; background:rgba(255,255,255,0.96); backdrop-filter:blur(16px); -webkit-backdrop-filter:blur(16px); border-top:1.5px solid var(--bdr); display:flex; z-index:99; box-shadow:0 -2px 12px rgba(46,125,50,0.06); }
+        .bnav button { flex:1; background:none; border:none; padding:12px 0 10px; display:flex; flex-direction:column; align-items:center; gap:4px; color:var(--txt3); font-family:inherit; cursor:pointer; -webkit-tap-highlight-color:transparent; transition:color .2s; }
+        .bnav button.on { color:var(--green); }
+        .bnav-ic { font-size:22px; line-height:1; }
+        .bnav-lbl { font-size:10px; font-weight:700; letter-spacing:.2px; }
+
         .overlay{position:fixed;inset:0;z-index:200;background:rgba(0,0,0,.5);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);display:flex;align-items:flex-end;justify-content:center;animation:fadeIn .25s ease;}
         .modal{background:var(--surf);border:1.5px solid var(--bdr);border-radius:22px 22px 0 0;width:100%;max-width:480px;padding:20px 20px calc(28px + env(safe-area-inset-bottom));position:relative;animation:slideUp .3s ease;box-shadow:0 -8px 32px rgba(46,125,50,0.12);}
         .m-handle{width:36px;height:4px;background:var(--bdr2);border-radius:2px;margin:0 auto 18px;}
@@ -331,7 +509,6 @@ useEffect(() => {
       `}</style>
 
       <div className="page">
-
         {/* TOPBAR */}
         <div className="tb">
           <div className="logo">☕ NNS<small>Giá cà phê Lâm Đồng</small></div>
@@ -343,108 +520,184 @@ useEffect(() => {
         </div>
 
         <div className="main">
-
-          {/* AD */}
-          {showAd && (
-            <div className="ad">
-              <div className="ad-lbl">QUẢNG CÁO</div>
-              <button className="ad-x" onClick={()=>setShowAd(false)}>✕</button>
-              <div className="ad-body">
-                <div className="ad-icon">🌱</div>
-                <div className="ad-copy">
-                  <h4>Phân bón Đầu Trâu — Ưu đãi tháng 3</h4>
-                  <p>Giảm 15% đơn từ 1 tấn. Giao tận nơi Lâm Đồng.</p>
+          {activeTab === 'market' && (
+            <>
+              {/* AD */}
+              {showAd && adData && adData.banner_title && (
+                <div className="ad">
+                  <div className="ad-lbl">QUẢNG CÁO</div>
+                  <button className="ad-x" onClick={()=>setShowAd(false)}>✕</button>
+                  <div className="ad-body">
+                    <div className="ad-icon">🌱</div>
+                    <div className="ad-copy">
+                      <h4>{adData.banner_title}</h4>
+                      <p>{adData.banner_body}</p>
+                    </div>
+                  </div>
                 </div>
+              )}
+
+              {/* ASSET */}
+              {isLoggedIn && (
+                <div className="card fu d1">
+                  <div className="asset-row">
+                    <div className="av">{userName ? userName[0].toUpperCase() : 'U'}</div>
+                    <div className="asset-meta">
+                      <div className="asset-name">{userName || 'Người dùng'}</div>
+                      <div className="asset-live"><span className="dot"/>Cập nhật {new Date().toLocaleTimeString('vi-VN', {hour:'2-digit', minute:'2-digit'})}</div>
+                    </div>
+                    <div className="asset-val">
+                      <div className="big-num">{fmt(total)}<small> đ</small></div>
+                      <div style={{marginTop:3,textAlign:'right'}}><ChangeTag val={diff} suffix=" đ"/></div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* ACTIONS */}
+              <div className="actions fu d2">
+                <button className="act"><span className="act-icon">📋</span><span className="act-lbl">Chốt cà phê</span></button>
+                <button className="act" onClick={() => setActiveTab('shop')}><span className="act-icon">🛒</span><span className="act-lbl">Đặt mua phân</span></button>
+                <button className="act dim"><span className="act-icon">⋯</span><span className="act-lbl">Sắp ra mắt</span></button>
+              </div>
+
+              {/* CHART CARD */}
+              <div className="card fu d3">
+                <div className="ctabs">
+                  {Object.entries(TABS).map(([k,m]) => (
+                    <button key={k} className={`ctab${tab===k?' on':''}`} onClick={()=>setTab(k)}>
+                      <span className="ctab-n">{m.label}</span>
+                      <span className="ctab-sub">{m.sub}</span>
+                    </button>
+                  ))}
+                </div>
+                <CoffeePriceDisplay
+                  data={coffeePrice}
+                  loading={coffeeLoading}
+                  usdVnd={usdVnd}
+                  vcbAt={vcbAt}
+                  tab={tab}
+                  onRefresh={loadCoffeePrice}
+                />
+              </div>
+
+              {/* AGENTS */}
+              <div className="card fu d4" style={{padding:0}}>
+                <div className="ag-hdr">
+                  <div><div className="ag-title">Đại lý gần bạn</div><div className="ag-sub">Sắp xếp theo giá cao nhất</div></div>
+                  <div className="live"><span className="dot"/>LIVE</div>
+                </div>
+                {agentsLoading && <div style={{textAlign:'center',padding:'20px',color:'#888',fontSize:13}}>⏳ Đang tải...</div>}
+                {locationErr && <div style={{textAlign:'center',padding:'12px',color:'#c62828',fontSize:12}}>⚠ {locationErr}</div>}
+                {!agentsLoading && agents.length === 0 && !locationErr && (
+                  <div style={{textAlign:'center',padding:'20px',color:'#888',fontSize:13}}>Chưa có đại lý nào</div>
+                )}
+                {agents
+                  .filter(a => a.name?.toLowerCase().includes(search.toLowerCase()) || (a.address||'').toLowerCase().includes(search.toLowerCase()))
+                  .sort((a, b) => (b.price || 0) - (a.price || 0))
+                  .slice(0, 10)
+                  .map((a,i) => {
+                    const c = a.change>0?'tag-up':a.change<0?'tag-down':'tag-flat'
+                    const arrow = a.change>0?'▲+':a.change<0?'▼':'─'
+                    return (
+                      <div key={a._id || i} className="ag-row" onClick={()=>navigate(`/agent/${a._id}`)} style={{cursor:'pointer'}}>
+                        <div className="ag-rank">{i+1}</div>
+                        <div className="ag-av">🏪</div>
+                        <div className="ag-info">
+                          <div className="ag-name">{a.name}</div>
+                          <div className="ag-loc">📍 {a.address||a.loc||'Lâm Đồng'}{a.distance ? ` · ${a.distance}km` : ''}</div>
+                        </div>
+                        <div className="ag-prc">
+                          <div className={`ag-num ${c}`}>{a.price>0?fmt(a.price)+'đ':'—'}</div>
+                          {a.change!==0 && <div className={`ag-chg ${c}`}>{arrow}{fmt(Math.abs(a.change||0))}</div>}
+                        </div>
+                      </div>
+                    )
+                  })
+                }
+                {agents.filter(a => a.name?.toLowerCase().includes(search.toLowerCase()) || (a.address||'').toLowerCase().includes(search.toLowerCase())).length > 10 && (
+                  <button 
+                    style={{width:'100%', padding: '14px', background: 'var(--bg2)', border: 'none', color: 'var(--green)', fontWeight: 700, borderBottomLeftRadius:'var(--r)', borderBottomRightRadius:'var(--r)', cursor: 'pointer', fontFamily:'inherit', borderTop:'1px solid var(--bdr)'}} 
+                    onClick={() => { setActiveTab('agents-list'); window.scrollTo(0,0); }}
+                  >
+                    Xem tất cả đại lý ➔
+                  </button>
+                )}
+              </div>
+            </>
+          )}
+
+          {activeTab === 'agents-list' && (
+            <div className="fu d1">
+              <div style={{display:'flex', alignItems:'center', gap:10, marginBottom:16}}>
+                <button onClick={() => setActiveTab('market')} style={{background:'var(--surf)',border:'1px solid var(--bdr)',borderRadius:8,width:36,height:36,display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,cursor:'pointer',color:'var(--txt)'}}>←</button>
+                <h3 style={{fontSize:18}}>Tất cả đại lý</h3>
+              </div>
+              <div className="card" style={{padding:0}}>
+                {agents
+                  .filter(a => a.name?.toLowerCase().includes(search.toLowerCase()) || (a.address||'').toLowerCase().includes(search.toLowerCase()))
+                  .sort((a, b) => (b.price || 0) - (a.price || 0))
+                  .map((a,i) => {
+                    const c = a.change>0?'tag-up':a.change<0?'tag-down':'tag-flat'
+                    const arrow = a.change>0?'▲+':a.change<0?'▼':'─'
+                    return (
+                      <div key={a._id || i} className="ag-row" onClick={()=>navigate(`/agent/${a._id}`)} style={{cursor:'pointer'}}>
+                        <div className="ag-rank">{i+1}</div>
+                        <div className="ag-av">🏪</div>
+                        <div className="ag-info">
+                          <div className="ag-name">{a.name}</div>
+                          <div className="ag-loc">📍 {a.address||a.loc||'Lâm Đồng'}{a.distance ? ` · ${a.distance}km` : ''}</div>
+                        </div>
+                        <div className="ag-prc">
+                          <div className={`ag-num ${c}`}>{a.price>0?fmt(a.price)+'đ':'—'}</div>
+                          {a.change!==0 && <div className={`ag-chg ${c}`}>{arrow}{fmt(Math.abs(a.change||0))}</div>}
+                        </div>
+                      </div>
+                    )
+                })}
               </div>
             </div>
           )}
 
-          {/* ASSET */}
-          <div className="card fu d1">
-            <div className="asset-row">
-              <div className="av">H</div>
-              <div className="asset-meta">
-                <div className="asset-name">Hoàng Anh</div>
-                <div className="asset-live"><span className="dot"/>Cập nhật 08:45</div>
-              </div>
-              <div className="asset-val">
-                <div className="big-num">{fmt(total)}<small> đ</small></div>
-                <div style={{marginTop:3,textAlign:'right'}}><ChangeTag val={diff} suffix=" đ"/></div>
-              </div>
-            </div>
-            <div className="divider"/>
-            <div className="kg-row">
-              <span className="kg-lbl">Khối lượng cà phê</span>
-              <div className="kg-wrap">
-                <input className="kg-inp" type="number" inputMode="numeric" value={kg} onChange={e=>setKg(Number(e.target.value))} min={0}/>
-                <span className="kg-unit">kg</span>
-              </div>
-            </div>
-          </div>
-
-          {/* ACTIONS */}
-          <div className="actions fu d2">
-            <button className="act"><span className="act-icon">📋</span><span className="act-lbl">Chốt cà phê</span></button>
-            <button className="act"><span className="act-icon">🛒</span><span className="act-lbl">Đặt mua phân</span></button>
-            <button className="act dim"><span className="act-icon">⋯</span><span className="act-lbl">Sắp ra mắt</span></button>
-          </div>
-
-          {/* CHART CARD — giá quốc tế từ backend */}
-          <div className="card fu d3">
-            <div className="ctabs">
-              {Object.entries(TABS).map(([k,m]) => (
-                <button key={k} className={`ctab${tab===k?' on':''}`} onClick={()=>setTab(k)}>
-                  <span className="ctab-n">{m.label}</span>
-                  <span className="ctab-sub">{m.sub}</span>
-                </button>
-              ))}
-            </div>
-            <CoffeePriceDisplay
-              data={coffeePrice}
-              loading={coffeeLoading}
-              usdVnd={usdVnd}
-              vcbAt={vcbAt}
-              tab={tab}
-              onRefresh={loadCoffeePrice}
-            />
-          </div>
-
-          {/* AGENTS */}
-          <div className="card fu d4" style={{padding:0}}>
-            <div className="ag-hdr">
-              <div><div className="ag-title">Đại lý gần bạn</div><div className="ag-sub">Sắp xếp theo giá cao nhất</div></div>
-              <div className="live"><span className="dot"/>LIVE</div>
-            </div>
-            {agentsLoading && <div style={{textAlign:'center',padding:'20px',color:'#888',fontSize:13}}>⏳ Đang tải...</div>}
-            {locationErr && <div style={{textAlign:'center',padding:'12px',color:'#c62828',fontSize:12}}>⚠ {locationErr}</div>}
-            {!agentsLoading && agents.length === 0 && !locationErr && (
-              <div style={{textAlign:'center',padding:'20px',color:'#888',fontSize:13}}>Chưa có đại lý nào</div>
-            )}
-            {agents
-              .filter(a => a.name?.toLowerCase().includes(search.toLowerCase()) || (a.address||'').toLowerCase().includes(search.toLowerCase()))
-              .map((a,i) => {
-                const c = a.change>0?'tag-up':a.change<0?'tag-down':'tag-flat'
-                const arrow = a.change>0?'▲+':a.change<0?'▼':'─'
-                return (
-                  <div key={a._id} className="ag-row" onClick={()=>navigate(`/agent/${a._id}`)} style={{cursor:'pointer'}}>
-                    <div className="ag-rank">{i+1}</div>
-                    <div className="ag-av">🏪</div>
-                    <div className="ag-info">
-                      <div className="ag-name">{a.name}</div>
-                      <div className="ag-loc">📍 {a.address||a.loc||'Lâm Đồng'}{a.distance ? ` · ${a.distance}km` : ''}</div>
-                    </div>
-                    <div className="ag-prc">
-                      <div className={`ag-num ${c}`}>{a.price>0?fmt(a.price)+'đ':'—'}</div>
-                      {a.change!==0 && <div className={`ag-chg ${c}`}>{arrow}{fmt(Math.abs(a.change||0))}</div>}
-                    </div>
-                  </div>
-                )
-              })
-            }
-          </div>
+          {activeTab === 'shop' && <ShopTab agents={agents} />}
+          {activeTab === 'assets' && <AssetsTab kg={kg} setKg={setKg} />}
+          {activeTab === 'settings' && <SettingsTab isLoggedIn={isLoggedIn} userName={userName} onLogout={handleLogout} onLoginClick={()=>setShowLogin(true)} />}
 
         </div>
       </div>
+
+      {/* BOTTOM NAV */}
+      <div className="bnav">
+        <button className={activeTab === 'market' ? 'on' : ''} onClick={() => setActiveTab('market')}>
+          <span className="bnav-ic">📈</span>
+          <span className="bnav-lbl">Thị trường</span>
+        </button>
+        <button className={activeTab === 'shop' ? 'on' : ''} onClick={() => setActiveTab('shop')}>
+          <span className="bnav-ic">🛒</span>
+          <span className="bnav-lbl">Mua sắm</span>
+        </button>
+        <button className={activeTab === 'assets' ? 'on' : ''} onClick={() => setActiveTab('assets')}>
+          <span className="bnav-ic">💼</span>
+          <span className="bnav-lbl">Tài sản</span>
+        </button>
+        <button className={activeTab === 'settings' ? 'on' : ''} onClick={() => setActiveTab('settings')}>
+          <span className="bnav-ic">⚙️</span>
+          <span className="bnav-lbl">Cài đặt</span>
+        </button>
+      </div>
+
+      {/* POPUP AD */}
+      {adData && adData.popup_enabled && showPopup && (
+        <div className="overlay" style={{zIndex:300}} onClick={e=>{if(e.target===e.currentTarget){setShowPopup(false);sessionStorage.setItem('nns_ad_seen','1')}}}>
+          <div className="modal" style={{paddingBottom: 30}}>
+            <button className="m-x" onClick={()=>{setShowPopup(false); sessionStorage.setItem('nns_ad_seen','1')}}>✕</button>
+            <div className="m-logo" style={{fontSize:40,marginBottom:10}}>📢</div>
+            <div className="m-title" style={{color:'var(--green)'}}>{adData.popup_title}</div>
+            <div className="m-sub" style={{marginBottom: 20}}>{adData.popup_body}</div>
+            <button className="m-btn" onClick={()=>{setShowPopup(false); sessionStorage.setItem('nns_ad_seen','1')}}>Đóng thông báo</button>
+          </div>
+        </div>
+      )}
 
       {/* LOGIN MODAL */}
       {showLogin && (
@@ -453,13 +706,28 @@ useEffect(() => {
             <div className="m-handle"/>
             <button className="m-x" onClick={()=>setShowLogin(false)}>✕</button>
             <div className="m-logo">☕</div>
-            <div className="m-title">Đăng nhập NNS</div>
-            <div className="m-sub">Theo dõi tài sản & nhận giá theo thời gian thực</div>
-            <input className="m-inp" placeholder="Tên đăng nhập" autoCapitalize="none"/>
-            <input className="m-inp" placeholder="Mật khẩu" type="password"/>
-            <button className="m-btn">🌱 Đăng nhập</button>
+            <div className="m-title">{isRegistering ? 'Tạo tài khoản NNS' : 'Đăng nhập NNS'}</div>
+            <div className="m-sub">Theo dõi tài sản & nhận thông báo giá ngay lập tức</div>
+            
+            {loginErr && <div style={{color:loginErr.includes('✅')?'var(--green)':'var(--red)', fontSize:13, marginBottom:10, textAlign:'center', background:loginErr.includes('✅')?'var(--green3)':'var(--red2)', padding:8, borderRadius:8}}>{loginErr}</div>}
+            
+            {isRegistering && (
+              <input className="m-inp" placeholder="Họ và tên" value={regName} onChange={e=>setRegName(e.target.value)} />
+            )}
+            <input className="m-inp" placeholder="Số điện thoại" inputMode="tel" value={loginPhone} onChange={e=>setLoginPhone(e.target.value)} />
+            <input className="m-inp" placeholder="Mật khẩu" type="password" value={loginPass} onChange={e=>setLoginPass(e.target.value)} onKeyDown={e=>e.key==='Enter'&&(isRegistering?submitRegister():submitLogin())}/>
+            
+            <button className="m-btn" onClick={isRegistering?submitRegister:submitLogin} disabled={loginLoading}>
+              {loginLoading ? 'Đang xử lý...' : (isRegistering ? 'Tham gia ngay' : '🌱 Đăng nhập')}
+            </button>
             <div className="m-or">hoặc</div>
-            <div className="m-reg">Chưa có tài khoản? <a>Đăng ký ngay</a></div>
+            <div className="m-reg">
+              {isRegistering ? (
+                <>Đã có tài khoản? <a onClick={()=>{setIsRegistering(false); setLoginErr('')}}>Đăng nhập</a></>
+              ) : (
+                <>Chưa có tài khoản? <a onClick={()=>{setIsRegistering(true); setLoginErr('')}}>Đăng ký ngay</a></>
+              )}
+            </div>
           </div>
         </div>
       )}

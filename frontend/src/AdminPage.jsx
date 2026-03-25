@@ -30,6 +30,12 @@ export default function AdminPage() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [screen, setScreen] = useState('home')
+  const [splash, setSplash] = useState(true)
+
+  useEffect(() => {
+    const t = setTimeout(() => setSplash(false), 1500)
+    return () => clearTimeout(t)
+  }, [])
 
   const handleSwipeBack = useCallback(() => {
     if (screen === 'agent_detail') setScreen('agents')
@@ -132,21 +138,35 @@ export default function AdminPage() {
   const updateAgentPrice = async () => {
     if (!adminPrice) return
     setLoading(true)
-    const token_admin = localStorage.getItem(TOKEN_KEY)
-    const r = await fetch(`${API}/admin/agents/${selectedAgent._id}/price`, {
-      method:'PUT',
-      headers:{'Content-Type':'application/json', Authorization:`Bearer ${token_admin}`},
-      body: JSON.stringify({price: parseInt(adminPrice), note: adminPriceNote})
-    })
-    if (r.ok) {
-      setSaved('✅ Đã cập nhật giá!')
-      setAdminPrice('')
-      setAdminPriceNote('')
-      const updated = {...selectedAgent, price: parseInt(adminPrice)}
-      setSelectedAgent(updated)
-      fetchAll()
+
+    const doUpdate = async (lat = null, lng = null) => {
+      const token_admin = localStorage.getItem(TOKEN_KEY)
+      const r = await fetch(`${API}/admin/agents/${selectedAgent._id}/price`, {
+        method:'PUT',
+        headers:{'Content-Type':'application/json', Authorization:`Bearer ${token_admin}`},
+        body: JSON.stringify({price: parseInt(adminPrice), note: adminPriceNote, lat, lng})
+      })
+      if (r.ok) {
+        setSaved('✅ Đã cập nhật giá!')
+        setAdminPrice('')
+        setAdminPriceNote('')
+        const updated = {...selectedAgent, price: parseInt(adminPrice)}
+        setSelectedAgent(updated)
+        openAgent(updated) // Re-fetch logs to show the new one
+        fetchAll()
+      }
+      setLoading(false)
     }
-    setLoading(false)
+
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        pos => doUpdate(pos.coords.latitude, pos.coords.longitude),
+        err => doUpdate(),
+        { timeout: 5000, maximumAge: 60000 }
+      )
+    } else {
+      doUpdate()
+    }
   }
 
   const openAgent = async (agent) => {
@@ -180,7 +200,18 @@ export default function AdminPage() {
     {id:'users',  icon:'👥', label:'Người dùng', count:users.length, color:'#1565c0', bg:'#e3f2fd'},
     {id:'ads',    icon:'📢', label:'Quảng cáo', count:'', color:'#2e7d32', bg:'#e8f5e9'},
     {id:'traffic',icon:'📊', label:'Traffic', count:'', color:'#00695c', bg:'#e0f2f1'},
+    {id:'logs',   icon:'📜', label:'Nhật ký Server', count:logs.length, color:'#4a148c', bg:'#f3e5f5'},
   ]
+
+  if (splash) return (
+    <div style={{minHeight:'100dvh', background:'#fff8f0', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', fontFamily:"'Be Vietnam Pro',sans-serif"}}>
+      <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
+      <style>{`@keyframes pulse {0%, 100% {transform: scale(1); opacity:1} 50% {transform: scale(1.05); opacity:0.85}}`}</style>
+      <img src="/icon-admin-192.png" alt="NNS Admin Logo" style={{width:96,height:96,borderRadius:24,boxShadow:'0 8px 24px rgba(230,81,0,.2)',animation:'pulse 1.5s infinite', background:'#fff'}}/>
+      <div style={{fontSize:26, fontWeight:800, color:'#e65100', marginTop:24}}>NNS Admin</div>
+      <div style={{fontSize:14, color:'#888', marginTop:6}}>Trung tâm điều hành NNS</div>
+    </div>
+  )
 
   if (!token) return (
     <div style={{...s.wrap, display:'flex', flexDirection:'column', justifyContent:'center', minHeight:'100vh'}}>
@@ -428,25 +459,16 @@ export default function AdminPage() {
               <div style={{padding:'0 12px',fontWeight:700,fontSize:14,color:orange,marginBottom:8}}>
                 📋 Nhật ký hoạt động ({agentLogs.length})
               </div>
-              {agentLogs.length===0 && <div style={{textAlign:'center',padding:20,color:'#888',fontSize:13}}>Chưa có log nào</div>}
-              {agentLogs.map((l,i)=>(
-                <div key={i} style={{...s.card,padding:'12px 14px',margin:'0 12px 8px',borderLeft:`3px solid ${
-                  l.action==='update_price'?'#1565c0':l.action==='add_product'?'#2e7d32':l.action==='delete_product'?'#c62828':'#888'
-                }`}}>
-                  <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:4}}>
-                    <span style={{fontSize:15}}>
-                      {l.action==='update_price'?'💰':l.action==='add_product'?'➕':l.action==='delete_product'?'🗑':'📋'}
-                    </span>
-                    <span style={{fontWeight:700,fontSize:13,color:
-                      l.action==='update_price'?'#1565c0':l.action==='add_product'?'#2e7d32':l.action==='delete_product'?'#c62828':'#555'
-                    }}>
-                      {l.action==='update_price'?'Cập nhật giá':l.action==='add_product'?'Thêm sản phẩm':l.action==='delete_product'?'Xóa sản phẩm':l.action||'—'}
-                    </span>
+              <div style={{margin:'0 12px 12px', background:'#1a1a2e', borderRadius:10, padding:14, overflowY:'auto', maxHeight:350, fontFamily:'JetBrains Mono, monospace', fontSize:12, boxShadow:'inset 0 2px 10px rgba(0,0,0,0.5)'}}>
+                {agentLogs.length===0 && <div style={{textAlign:'center',color:'#777',marginTop:20}}>Chưa có log nào</div>}
+                {agentLogs.map((l,i)=>(
+                  <div key={i} style={{borderBottom:'1px dashed #333', paddingBottom:6, marginBottom:6, lineHeight:1.4}}>
+                    <span style={{color:'#64ffda',fontSize:10}}>[{toVN(l.at)}]</span>{' '}
+                    <span style={{color:'#ff9100',fontWeight:600}}>[{l.agent_name || 'Hệ thống'}]</span>{' '}
+                    <span style={{color:'#e6e6e6'}}>{l.detail || l.action}</span>
                   </div>
-                  <div style={{fontSize:13,color:'#333',marginBottom:4,fontFamily:'monospace'}}>{l.detail||'—'}</div>
-                  <div style={{fontSize:11,color:'#aaa'}}>{toVN(l.at)}</div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
           )}
 
@@ -468,6 +490,25 @@ export default function AdminPage() {
               <div style={{fontSize:12,color:'#888',marginBottom:4}}>Nội dung popup</div>
               <input style={s.inp} value={ads.popup_body||''} onChange={e=>setAds({...ads,popup_body:e.target.value})} placeholder="Nội dung popup"/>
               <button style={s.btn} onClick={saveAds} disabled={loading}>{loading?'Đang lưu...':'💾 Lưu quảng cáo'}</button>
+            </div>
+          )}
+
+          {/* LOGS */}
+          {screen==='logs' && (
+            <div style={{padding:'0 12px'}}>
+              <div style={{fontWeight:700,fontSize:14,color:orange,marginBottom:8}}>
+                📜 Toàn bộ nhật ký hệ thống ({logs.length})
+              </div>
+              <div style={{background:'#1a1a2e', borderRadius:10, padding:14, overflowY:'auto', minHeight:'calc(100vh - 160px)', fontFamily:'JetBrains Mono, monospace', fontSize:12, boxShadow:'inset 0 2px 10px rgba(0,0,0,0.5)'}}>
+                {logs.length===0 && <div style={{textAlign:'center',color:'#777',marginTop:20}}>Chưa có log nào</div>}
+                {logs.map((l,i)=>(
+                  <div key={i} style={{borderBottom:'1px dashed #333', paddingBottom:6, marginBottom:6, lineHeight:1.4}}>
+                    <span style={{color:'#64ffda',fontSize:10}}>[{toVN(l.at)}]</span>{' '}
+                    <span style={{color:'#ff9100',fontWeight:600}}>[{l.agent_name || 'Hệ thống'}]</span>{' '}
+                    <span style={{color:'#e6e6e6'}}>{l.detail || l.action}</span>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 

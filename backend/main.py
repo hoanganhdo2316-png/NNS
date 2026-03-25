@@ -66,7 +66,7 @@ class AgriData(BaseModel):
 
 # 7. Helpers
 def create_token(data: dict):
-    expire = datetime.now(VN_TZ) + timedelta(days=365ACCESS_TOKEN_EXPIRE_MINUTES)
+    expire = datetime.now(VN_TZ) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     return jwt.encode({**data, "exp": expire}, SECRET_KEY, algorithm=ALGORITHM)
 
 async def get_current_user(token: str = Depends(oauth2_scheme)):
@@ -324,6 +324,8 @@ class AgentLoginRequest(BM):
 class AgentPriceUpdate(BM):
     price: int
     note: str = ""
+    lat: Optional[float] = None
+    lng: Optional[float] = None
 
 class AgentProfileUpdate(BM):
     name: Optional[str] = None
@@ -398,11 +400,14 @@ async def agent_update_price(req: AgentPriceUpdate, agent=Depends(get_current_ag
             "$push": {"price_history": {"$each": [history_entry], "$slice": -30}}
         }
     )
+    loc_str = f" | Tọa độ: {req.lat}, {req.lng}" if req.lat and req.lng else ""
     await db["agent_logs"].insert_one({
         "agent_id": agent["_id"],
         "agent_name": agent.get("name", ""),
         "action": "update_price",
-        "detail": f"Cập nhật giá: {req.price:,}đ/kg" + (f" — {req.note}" if req.note else ""),
+        "detail": f"Cập nhật giá: {req.price:,}đ/kg" + (f" — {req.note}" if req.note else "") + loc_str,
+        "lat": req.lat,
+        "lng": req.lng,
         "at": now
     })
     return {"ok": True}
@@ -559,6 +564,16 @@ async def admin_update_agent_price(agent_id: str, req: AgentPriceUpdate, admin=D
             "$push": {"price_history": {"$each": [history_entry], "$slice": -30}}
         }
     )
+    loc_str = f" | Tọa độ: {req.lat}, {req.lng}" if req.lat and req.lng else ""
+    await db["agent_logs"].insert_one({
+        "agent_id": agent_id,
+        "agent_name": "Admin",
+        "action": "admin_update_price",
+        "detail": f"Cập nhật giá: {req.price:,}đ/kg" + (f" — {req.note}" if req.note else "") + loc_str,
+        "lat": req.lat,
+        "lng": req.lng,
+        "at": now
+    })
     return {"ok": True}
 
 @app.get("/admin/logs")

@@ -57,6 +57,12 @@ export default function AgentPage() {
   const [agent, setAgent] = useState(null)
   const [screen, setScreen] = useState('login')
   const [locked, setLocked] = useState(false)
+  const [splash, setSplash] = useState(true)
+
+  useEffect(() => {
+    const t = setTimeout(() => setSplash(false), 1500)
+    return () => clearTimeout(t)
+  }, [])
 
   const handleSwipeBack = useCallback(() => {
     if (screen !== 'home' && screen !== 'login') setScreen('home')
@@ -88,7 +94,7 @@ export default function AgentPage() {
       const d = await r.json()
       setAgent(d)
       setProfileForm({name:d.name||'',address:d.address||'',phone:d.phone||'',phone2:d.phone2||'',zalo:d.zalo||'',email:d.email||'',facebook:d.facebook||''})
-      setScreen('home')
+      setScreen(prev => (prev === 'login' || prev === 'register') ? 'home' : prev)
     } catch { logout() }
   }
 
@@ -179,6 +185,17 @@ hdr: {padding:'calc(env(safe-area-inset-top) + 16px) 18px 10px',display:'flex',a
     select: {width:'100%',padding:'13px 15px',borderRadius:12,border:'1.5px solid #dde3f0',fontSize:14,marginBottom:10,boxSizing:'border-box',background:'#f8faff'},
     textarea: {width:'100%',padding:'13px 15px',borderRadius:12,border:'1.5px solid #dde3f0',fontSize:13,marginBottom:10,boxSizing:'border-box',minHeight:80,resize:'vertical',fontFamily:'inherit',background:'#f8faff'},
   }
+
+  // SPLASH
+  if (splash) return (
+    <div style={{minHeight:'100dvh', background:'#0d47a1', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', fontFamily:"'Be Vietnam Pro',sans-serif"}}>
+      <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
+      <style>{`@keyframes pulse {0%, 100% {transform: scale(1); opacity:1} 50% {transform: scale(1.05); opacity:0.85}}`}</style>
+      <img src="/icon-agent-192.png" alt="NNS Agent Logo" style={{width:96,height:96,borderRadius:24,boxShadow:'0 8px 24px rgba(0,0,0,.3)',animation:'pulse 1.5s infinite', background:'#fff'}}/>
+      <div style={{fontSize:26, fontWeight:800, color:'#fff', marginTop:24}}>NNS Đại lý</div>
+      <div style={{fontSize:14, color:'rgba(255,255,255,0.7)', marginTop:6}}>Cổng quản lý đại lý cà phê</div>
+    </div>
+  )
 
   // LOCKED
   if (locked) return (
