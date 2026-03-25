@@ -38,8 +38,43 @@
 
     <title>NNS — Giá cà phê Lâm Đồng</title>
   </head>
+  <style>body { margin: 0; }</style>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <script>
+        (function(){
+          var path = window.location.pathname;
+          var style = '<style>@keyframes pulse {0%, 100% {transform: scale(1); opacity:1} 50% {transform: scale(1.05); opacity:0.85}}</style>';
+          var html = '';
+          if (path.startsWith('/agent')) {
+            document.body.style.backgroundColor = '#0d47a1';
+            html = '<div style="min-height:100dvh; background:#0d47a1; display:flex; flex-direction:column; align-items:center; justify-content:center; font-family:\'Be Vietnam Pro\',sans-serif">' +
+                   style +
+                   '<img src="/icon-agent-192.png" alt="NNS Agent" style="width:96px;height:96px;border-radius:24px;box-shadow:0 8px 24px rgba(0,0,0,.3);animation:pulse 1.5s infinite; background:#fff" />' +
+                   '<div style="font-size:26px; font-weight:800; color:#fff; margin-top:24px">NNS Đại lý</div>' +
+                   '<div style="font-size:14px; color:rgba(255,255,255,0.7); margin-top:6px">Cổng quản lý đại lý cà phê</div>' +
+                   '</div>';
+          } else if (path.startsWith('/admin')) {
+            document.body.style.backgroundColor = '#fff8f0';
+            html = '<div style="min-height:100dvh; background:#fff8f0; display:flex; flex-direction:column; align-items:center; justify-content:center; font-family:\'Be Vietnam Pro\',sans-serif">' +
+                   style +
+                   '<img src="/icon-admin-192.png" alt="NNS Admin" style="width:96px;height:96px;border-radius:24px;box-shadow:0 8px 24px rgba(230,81,0,.2);animation:pulse 1.5s infinite; background:#fff" />' +
+                   '<div style="font-size:26px; font-weight:800; color:#e65100; margin-top:24px">NNS Admin</div>' +
+                   '<div style="font-size:14px; color:#888; margin-top:6px">Trung tâm điều hành NNS</div>' +
+                   '</div>';
+          } else {
+            document.body.style.backgroundColor = '#f2f7f2';
+            html = '<div style="min-height:100dvh; background:#f2f7f2; display:flex; flex-direction:column; align-items:center; justify-content:center; font-family:\'Be Vietnam Pro\',sans-serif">' +
+                   style +
+                   '<img src="/icon-192.png" alt="NNS" style="width:96px;height:96px;border-radius:24px;box-shadow:0 8px 24px rgba(0,0,0,.15);animation:pulse 1.5s infinite; background:#fff" />' +
+                   '<div style="font-size:26px; font-weight:800; color:#2e7d32; margin-top:24px">NNS</div>' +
+                   '<div style="font-size:14px; color:#4a6e4a; margin-top:6px">Giá cà phê Lâm Đồng</div>' +
+                   '</div>';
+          }
+          document.write(html);
+        })();
+      </script>
+    </div>
     <script type="module" src="/src/main.jsx"></script>
 
     <!-- Register Service Worker -->

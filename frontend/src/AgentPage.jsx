@@ -77,6 +77,8 @@ export default function AgentPage() {
   const [priceNote, setPriceNote] = useState('')
   const [profileForm, setProfileForm] = useState({})
   const [productForm, setProductForm] = useState({name:'',category:'phan_bon',price:'',unit:'kg',description:''})
+  const [imageFile, setImageFile] = useState(null)
+  const [imagePreview, setImagePreview] = useState(null)
   const [saved, setSaved] = useState('')
   const [showPin, setShowPin] = useState(false)
   const [pinAction, setPinAction] = useState(null)
@@ -142,6 +144,14 @@ export default function AgentPage() {
     setLoading(false)
   }
 
+  const handleImageChange = (e) => {
+    const file = e.target.files[0]
+    if (file) {
+      setImageFile(file)
+      setImagePreview(URL.createObjectURL(file))
+    }
+  }
+
   const doUpdatePrice = async () => {
     const r = await fetch(`${API}/agent/price`, {
       method:'PUT', headers:{'Content-Type':'application/json', Authorization:`Bearer ${token}`},
@@ -162,11 +172,37 @@ export default function AgentPage() {
 
   const addProduct = async () => {
     setLoading(true)
-    const r = await fetch(`${API}/agent/products`, {
-      method:'POST', headers:{'Content-Type':'application/json', Authorization:`Bearer ${token}`},
-      body: JSON.stringify({...productForm, price:parseInt(productForm.price)})
-    })
-    if (r.ok) { setSaved('✅ Đã thêm sản phẩm!'); fetchMe(); setProductForm({name:'',category:'phan_bon',price:'',unit:'kg',description:''}) }
+    setError('')
+    try {
+      let image_url = null
+      if (imageFile) {
+        const formData = new FormData()
+        formData.append('file', imageFile)
+        const res = await fetch(`${API}/agent/upload-image`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}` },
+          body: formData
+        })
+        const d = await res.json()
+        if (d.url) image_url = d.url
+      }
+
+      const r = await fetch(`${API}/agent/products`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ ...productForm, image_url, price: Number(productForm.price) })
+      })
+      if (r.ok) {
+        setSaved('✅ Đã thêm sản phẩm!');
+        setProductForm({ name: '', category: 'phan_bon', price: '', unit: 'kg', description: '' })
+        setImageFile(null)
+        setImagePreview(null)
+        fetchMe()
+      } else {
+        const d = await r.json()
+        setError(d.detail || 'Lỗi khi thêm sản phẩm')
+      }
+    } catch { setError('Lỗi kết nối server') }
     setLoading(false)
   }
 
@@ -371,6 +407,23 @@ hdr: {padding:'calc(env(safe-area-inset-top) + 16px) 18px 10px',display:'flex',a
             <div>
               <div style={{...s.card,margin:'0 12px 12px'}}>
                 <div style={{fontWeight:700,fontSize:14,marginBottom:12,color:'#111'}}>➕ Thêm sản phẩm</div>
+                
+                <div style={{fontSize:12,color:'#888',marginBottom:4}}>Hình ảnh sản phẩm</div>
+                <div 
+                  onClick={() => document.getElementById('prod-img').click()}
+                  style={{width: '100%', height: 180, background: '#f5f5f5', borderRadius: 12, border: '2px dashed #ddd', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', cursor: 'pointer', marginBottom: 16}}
+                >
+                  {imagePreview ? (
+                    <img src={imagePreview} style={{width: '100%', height: '100%', objectFit: 'cover'}} />
+                  ) : (
+                    <div style={{textAlign: 'center', color: '#999'}}>
+                      <div style={{fontSize: 32}}>📸</div>
+                      <div style={{fontSize: 12}}>Bấm để chọn ảnh</div>
+                    </div>
+                  )}
+                </div>
+                <input id="prod-img" type="file" accept="image/*" onChange={handleImageChange} style={{display: 'none'}} />
+
                 <div style={{fontSize:12,color:'#888',marginBottom:4}}>Tên sản phẩm</div>
                 <input style={s.inp} placeholder="VD: Phân DAP 64%" value={productForm.name} onChange={e=>setProductForm({...productForm,name:e.target.value})}/>
                 <div style={{fontSize:12,color:'#888',marginBottom:4}}>Danh mục</div>
@@ -401,16 +454,25 @@ hdr: {padding:'calc(env(safe-area-inset-top) + 16px) 18px 10px',display:'flex',a
               </div>
               {(agent.products||[]).length===0 && <div style={{textAlign:'center',padding:20,color:'#888',fontSize:13}}>Chưa có sản phẩm nào</div>}
               {(agent.products||[]).map(p=>(
-                <div key={p.id} style={{...s.card,margin:'0 12px 10px',padding:'14px 16px'}}>
-                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:10}}>
-                    <div style={{flex:1}}>
-                      <div style={{fontWeight:700,fontSize:14}}>{p.name}</div>
-                      <div style={{fontSize:12,color:'#1565c0',marginTop:3,fontWeight:600}}>
-                        {p.category==='phan_bon'?'🌱 Phân bón':p.category==='thuoc_bvtv'?'🧪 Thuốc BVTV':'📦 Khác'} · {fmt(p.price)}đ/{p.unit}
+                <div key={p.id} style={{...s.card,margin:'0 12px 10px',padding:'14px 16px',display:'flex',gap:12}}>
+                  <div style={{width:64,height:64,background:'#f5f5f5',borderRadius:10,overflow:'hidden',flexShrink:0}}>
+                    {p.image_url ? (
+                      <img src={p.image_url} style={{width:'100%',height:'100%',objectFit:'cover'}} />
+                    ) : (
+                      <div style={{width:'100%',height:'100%',display:'flex',alignItems:'center',justifyContent:'center',fontSize:24}}>📦</div>
+                    )}
+                  </div>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:10}}>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontWeight:700,fontSize:14,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{p.name}</div>
+                        <div style={{fontSize:12,color:'#1565c0',marginTop:3,fontWeight:600}}>
+                          {p.category==='phan_bon'?'🌱 Phân bón':p.category==='thuoc_bvtv'?'🧪 Thuốc BVTV':'📦 Khác'} · {fmt(p.price)}đ/{p.unit}
+                        </div>
+                        {p.description && <div style={{fontSize:12,color:'#666',marginTop:4,display:'-webkit-box',WebkitLineClamp:2,WebkitBoxOrient:'vertical',overflow:'hidden'}}>{p.description}</div>}
                       </div>
-                      {p.description && <div style={{fontSize:12,color:'#666',marginTop:4}}>{p.description}</div>}
+                      <button onClick={()=>deleteProduct(p.id)} style={{background:'#ffebee',border:'none',color:'#c62828',padding:'8px 12px',borderRadius:10,cursor:'pointer',fontSize:16}}>🗑</button>
                     </div>
-                    <button onClick={()=>deleteProduct(p.id)} style={{background:'#ffebee',border:'none',color:'#c62828',padding:'8px 12px',borderRadius:10,cursor:'pointer',fontSize:16}}>🗑</button>
                   </div>
                 </div>
               ))}
