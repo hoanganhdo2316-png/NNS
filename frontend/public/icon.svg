@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <!-- Background -->
+  <rect width="512" height="512" rx="110" fill="#2e7d32"/>
+
+  <!-- Coffee cup body -->
+  <rect x="156" y="200" width="200" height="170" rx="20" fill="white" opacity="0.95"/>
+
+  <!-- Cup handle -->
+  <path d="M356 230 Q420 230 420 300 Q420 370 356 370" stroke="white" stroke-width="28" fill="none" stroke-linecap="round" opacity="0.95"/>
+
+  <!-- Steam lines -->
+  <path d="M216 175 Q224 148 216 122" stroke="white" stroke-width="14" fill="none" stroke-linecap="round" opacity="0.7"/>
+  <path d="M256 165 Q264 138 256 112" stroke="white" stroke-width="14" fill="none" stroke-linecap="round" opacity="0.7"/>
+  <path d="M296 175 Q304 148 296 122" stroke="white" stroke-width="14" fill="none" stroke-linecap="round" opacity="0.7"/>
+
+  <!-- NNS text -->
+  <text x="256" y="310" font-family="Arial Black, Arial" font-weight="900" font-size="72"
+        fill="#2e7d32" text-anchor="middle" dominant-baseline="middle">NNS</text>
+
+  <!-- Saucer -->
+  <ellipse cx="256" cy="378" rx="130" ry="16" fill="white" opacity="0.85"/>
+</svg>

@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+
+    <!-- PWA -->
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="theme-color" content="#ffffff" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="NNS" />
+
+    <!-- Icons -->
+    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+    <link rel="apple-touch-icon" href="/icon-192.png" id="apple-touch-icon"/>
+    <script>
+      (function() {
+        var path = window.location.pathname;
+        var el = document.getElementById('apple-touch-icon');
+        if (path.startsWith('/agent')) {
+          el.href = '/icon-agent-192.png';
+          document.title = 'NNS Đại lý';
+        } else if (path.startsWith('/admin')) {
+          el.href = '/icon-admin-192.png';
+          document.title = 'NNS Admin';
+        }
+      })();
+    </script>
+
+    <!-- SEO / Social -->
+    <meta name="description" content="Theo dõi giá cà phê Lâm Đồng, tìm đại lý gần bạn và hỏi đáp nông nghiệp cùng AgriBot." />
+    <meta property="og:title" content="NNS — Giá cà phê Lâm Đồng" />
+    <meta property="og:description" content="Giá cà phê realtime, đại lý gần bạn, trợ lý AgriBot." />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://nns.id.vn" />
+
+    <title>NNS — Giá cà phê Lâm Đồng</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+
+    <!-- Register Service Worker -->
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js')
+            .then(reg => console.log('[NNS] SW registered:', reg.scope))
+            .catch(err => console.warn('[NNS] SW failed:', err))
+        })
+      }
+    </script>
+  </body>
+</html>
