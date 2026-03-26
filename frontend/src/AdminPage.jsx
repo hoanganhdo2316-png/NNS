@@ -4,7 +4,10 @@ import Spinner from './Spinner'
 import useSwipeBack from './useSwipeBack'
 import usePullToRefresh from './usePullToRefresh'
 
-const API = 'https://api.nns.id.vn'
+// Auto-detect API URL: local or production
+const API = (typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'))
+  ? 'http://localhost:8000'
+  : 'https://api.nns.id.vn'
 const TOKEN_KEY = 'admin_token'
 
 // Set manifest PWA riêng cho admin
