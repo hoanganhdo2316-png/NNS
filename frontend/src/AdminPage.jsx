@@ -59,8 +59,14 @@ export default function AdminPage() {
   const [agentLogs, setAgentLogs] = useState([])
   const [notifications, setNotifications] = useState([])
   const [showNoti, setShowNoti] = useState(false)
+  const [pushMessage, setPushMessage] = useState('')
+  const [catalog, setCatalog] = useState([])
+  const [catalogForm, setCatalogForm] = useState({name:'',category:'phan_bon',price:'',unit:'kg',description:'',image_url:''})
+  const [catalogImageFile, setCatalogImageFile] = useState(null)
+  const [catalogImagePreview, setCatalogImagePreview] = useState(null)
+  const [pushTime, setPushTime] = useState('')
 
-  const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }
+  const getHeaders = () => ({ Authorization: `Bearer ${localStorage.getItem(TOKEN_KEY)}`, 'Content-Type': 'application/json' })
 
   useEffect(() => {
     if (!token) return
@@ -70,14 +76,17 @@ export default function AdminPage() {
   usePullToRefresh(useCallback(()=>{ if(token) fetchAll() },[token]), !!token)
 
   const fetchAll = async () => {
+    const tok = localStorage.getItem(TOKEN_KEY)
+    const headers = { Authorization: `Bearer ${tok}`, 'Content-Type': 'application/json' }
     const safe = (p) => p.catch(() => null)
-    const [a, u, l, ad, tr, nt] = await Promise.all([
-      safe(fetch(`${API}/admin/agents`, {headers}).then(r=>r.ok?r.json():[])),
-      safe(fetch(`${API}/admin/users`, {headers}).then(r=>r.ok?r.json():[])),
-      safe(fetch(`${API}/admin/logs`, {headers}).then(r=>r.ok?r.json():[])),
-      safe(fetch(`${API}/admin/ads`, {headers}).then(r=>r.ok?r.json():{})),
-      safe(fetch(`${API}/admin/traffic`, {headers}).then(r=>r.ok?r.json():[])),
-      safe(fetch(`${API}/admin/notifications`, {headers}).then(r=>r.ok?r.json():[])),
+    const [a, u, l, ad, tr, nt, cat] = await Promise.all([
+      safe(fetch(`${API}/admin/agents`, {headers: getHeaders()}).then(r=>r.ok?r.json():[])),
+      safe(fetch(`${API}/admin/users`, {headers: getHeaders()}).then(r=>r.ok?r.json():[])),
+      safe(fetch(`${API}/admin/logs`, {headers: getHeaders()}).then(r=>r.ok?r.json():[])),
+      safe(fetch(`${API}/admin/ads`, {headers: getHeaders()}).then(r=>r.ok?r.json():{})),
+      safe(fetch(`${API}/admin/traffic`, {headers: getHeaders()}).then(r=>r.ok?r.json():[])),
+      safe(fetch(`${API}/admin/notifications`, {headers: getHeaders()}).then(r=>r.ok?r.json():[])),
+      safe(fetch(`${API}/catalog`, {headers: getHeaders()}).then(r=>r.ok?r.json():[])),
     ])
     if (Array.isArray(a)) setAgents(a)
     if (Array.isArray(u)) setUsers(u)
@@ -85,6 +94,7 @@ export default function AdminPage() {
     if (ad && typeof ad === 'object') setAds(ad)
     if (Array.isArray(tr)) setTraffic(tr)
     if (Array.isArray(nt)) setNotifications(nt)
+    if (Array.isArray(cat)) setCatalog(cat)
   }
 
   const doLogin = async () => {
@@ -106,20 +116,20 @@ export default function AdminPage() {
 
   const lockAgent = async (id, name) => {
     if (!confirm(`Khóa/mở khóa đại lý ${name}?`)) return
-    await fetch(`${API}/admin/agents/${id}/lock`, {method:'PUT', headers})
+    await fetch(`${API}/admin/agents/${id}/lock`, {method:'PUT', headers: getHeaders()})
     fetchAll()
   }
 
   const lockUser = async (id, name) => {
     if (!confirm(`Khóa/mở khóa người dùng ${name}?`)) return
-    await fetch(`${API}/admin/users/${id}/lock`, {method:'PUT', headers})
+    await fetch(`${API}/admin/users/${id}/lock`, {method:'PUT', headers: getHeaders()})
     fetchAll()
   }
 
   const addAgent = async () => {
     setLoading(true)
     const r = await fetch(`${API}/admin/agents`, {
-      method:'POST', headers,
+      method:'POST', headers: getHeaders(),
       body: JSON.stringify({...newAgent, lat:parseFloat(newAgent.lat), lng:parseFloat(newAgent.lng)})
     })
     if (r.ok) {
@@ -133,8 +143,25 @@ export default function AdminPage() {
 
   const saveAds = async () => {
     setLoading(true)
-    await fetch(`${API}/admin/ads`, {method:'PUT', headers, body:JSON.stringify(ads)})
+    await fetch(`${API}/admin/ads`, {method:'PUT', headers: getHeaders(), body:JSON.stringify(ads)})
     setSaved('✅ Đã lưu quảng cáo!')
+    setLoading(false)
+  }
+
+  const schedulePush = async () => {
+    setLoading(true)
+    const sendAt = pushTime ? new Date(pushTime).toISOString() : new Date().toISOString()
+    const r = await fetch(`${API}/admin/notifications/schedule`, {
+      method:'POST', headers: getHeaders(),
+      body: JSON.stringify({ message: pushMessage, send_at: sendAt })
+    })
+    if (r.ok) {
+      setSaved('✅ Đã thiết lập lịch gửi thông báo Push!')
+      setPushMessage('')
+      setPushTime('')
+    } else {
+      setError('Lỗi gửi Push')
+    }
     setLoading(false)
   }
 
@@ -175,7 +202,7 @@ export default function AdminPage() {
   const openAgent = async (agent) => {
     setSelectedAgent(agent)
     setScreen('agent_detail')
-    const r = await fetch(`${API}/admin/logs?agent_id=${agent._id}`, {headers})
+    const r = await fetch(`${API}/admin/logs?agent_id=${agent._id}`, {headers: getHeaders()})
     const d = await r.json()
     setAgentLogs(Array.isArray(d)?d:[])
   }
@@ -203,7 +230,9 @@ export default function AdminPage() {
     {id:'users',  icon:'👥', label:'Người dùng', count:users.length, color:'#1565c0', bg:'#e3f2fd'},
     {id:'ads',    icon:'📢', label:'Quảng cáo', count:'', color:'#2e7d32', bg:'#e8f5e9'},
     {id:'traffic',icon:'📊', label:'Traffic', count:'', color:'#00695c', bg:'#e0f2f1'},
-    {id:'logs',   icon:'📜', label:'Nhật ký Server', count:logs.length, color:'#4a148c', bg:'#f3e5f5'},
+    {id:'logs',   icon:'📜', label:'Nhật ký', count:logs.length, color:'#4a148c', bg:'#f3e5f5'},
+    {id:'push',   icon:'🔔', label:'Gửi Push', count:'', color:'#d81b60', bg:'#fce4ec'},
+    {id:'catalog', icon:'📦', label:'Danh mục SP', count:'', color:'#1565c0', bg:'#e3f2fd'},
   ]
 
   if (splash) return (
@@ -496,6 +525,22 @@ export default function AdminPage() {
             </div>
           )}
 
+          {/* PUSH NOTIFICATIONS */}
+          {screen==='push' && (
+            <div style={s.card}>
+              <div style={{fontWeight:700,marginBottom:12,color:orange}}>🔔 Lên lịch gửi thông báo cho Đại lý</div>
+              <div style={{fontSize:12,color:'#888',marginBottom:4}}>Nội dung thông báo (đổ chuông trên máy đại lý)</div>
+              <textarea style={{...s.inp,minHeight:80,resize:'vertical',fontFamily:'inherit'}} placeholder="VD: NNS nhắc nhở: Hãy cập nhật giá hôm nay!" 
+                value={pushMessage} onChange={e=>setPushMessage(e.target.value)} />
+              <div style={{fontSize:12,color:'#888',marginBottom:4}}>Hẹn giờ gửi (Không bắt buộc)</div>
+              <input style={s.inp} type="datetime-local" value={pushTime} onChange={e=>setPushTime(e.target.value)} />
+              <div style={{fontSize:11,color:'#888',marginBottom:12}}>* Nếu không chọn lịch hẹn, thông báo sẽ đẩy đi ngay lập tức.</div>
+              <button style={s.btn} onClick={schedulePush} disabled={!pushMessage||loading}>
+                {loading?'Đang xử lý...':'🚀 Lên lịch / Gửi ngay'}
+              </button>
+            </div>
+          )}
+
           {/* LOGS */}
           {screen==='logs' && (
             <div style={{padding:'0 12px'}}>
@@ -535,6 +580,78 @@ export default function AdminPage() {
                   </div>
                 )
               })}
+            </div>
+          )}
+
+          {/* CATALOG */}
+          {screen==='catalog' && (
+            <div>
+              <div style={s.card}>
+                <div style={{fontWeight:700,marginBottom:12,color:'#1565c0'}}>➕ Thêm sản phẩm vào danh mục</div>
+                <div style={{fontSize:12,color:'#888',marginBottom:4}}>Tên sản phẩm</div>
+                <input style={s.inp} placeholder="VD: Phân DAP 64%" value={catalogForm.name} onChange={e=>setCatalogForm({...catalogForm,name:e.target.value})}/>
+                <div style={{fontSize:12,color:'#888',marginBottom:4}}>Danh mục</div>
+                <select style={s.select} value={catalogForm.category} onChange={e=>setCatalogForm({...catalogForm,category:e.target.value})}>
+                  <option value="phan_bon">🌱 Phân bón</option>
+                  <option value="thuoc_bvtv">🧪 Thuốc BVTV</option>
+                  <option value="khac">📦 Khác</option>
+                </select>
+                <div style={{display:"flex",gap:10}}>
+                  <div style={{flex:2}}>
+                    <div style={{fontSize:12,color:"#888",marginBottom:4}}>Giá (VND)</div>
+                    <input style={s.inp} placeholder="0" value={catalogForm.price} onChange={e=>setCatalogForm({...catalogForm,price:e.target.value})} type="number"/>
+                  </div>
+                  <div style={{flex:1}}>
+                    <div style={{fontSize:12,color:"#888",marginBottom:4}}>Đơn vị</div>
+                    <select style={s.select} value={catalogForm.unit} onChange={e=>setCatalogForm({...catalogForm,unit:e.target.value})}>
+                      <option value="kg">kg</option>
+                      <option value="lit">lít</option>
+                      <option value="bao">bao</option>
+                      <option value="chai">chai</option>
+                    </select>
+                  </div>
+                </div>
+                <div style={{fontSize:12,color:"#888",marginBottom:4}}>Mô tả</div>
+                <input style={s.inp} placeholder="Mô tả ngắn..." value={catalogForm.description} onChange={e=>setCatalogForm({...catalogForm,description:e.target.value})}/>
+                <div style={{fontSize:12,color:"#888",marginBottom:4}}>Hình ảnh sản phẩm</div>
+                <div onClick={()=>document.getElementById('catalog-img').click()} style={{width:'100%',height:140,background:'#f5f5f5',borderRadius:12,border:'2px dashed #ddd',display:'flex',alignItems:'center',justifyContent:'center',overflow:'hidden',cursor:'pointer',marginBottom:10}}>
+                  {catalogImagePreview?<img src={catalogImagePreview} style={{width:'100%',height:'100%',objectFit:'cover'}}/>:<div style={{textAlign:'center',color:'#999'}}><div style={{fontSize:28}}>📸</div><div style={{fontSize:12}}>Bấm để chọn ảnh</div></div>}
+                </div>
+                <input id="catalog-img" type="file" accept="image/*" style={{display:'none'}} onChange={e=>{const f=e.target.files[0];if(f){setCatalogImageFile(f);setCatalogImagePreview(URL.createObjectURL(f))}}}/>
+                <button style={s.btn} disabled={!catalogForm.name||!catalogForm.price||loading} onClick={async()=>{
+                  setLoading(true)
+                  const tok = localStorage.getItem(TOKEN_KEY)
+                  let image_url = catalogForm.image_url
+                  if(catalogImageFile){
+                    const fd = new FormData(); fd.append('file', catalogImageFile)
+                    const up = await fetch(`${API}/admin/catalog/upload-image`,{method:'POST',headers:{Authorization:`Bearer ${tok}`},body:fd})
+                    if(up.ok){ const ud = await up.json(); image_url = ud.url }
+                  }
+                  const r = await fetch(`${API}/admin/catalog`,{method:"POST",headers:{Authorization:`Bearer ${tok}`,"Content-Type":"application/json"},body:JSON.stringify({...catalogForm,image_url,price:Number(catalogForm.price)})})
+                  if(r.ok){setSaved("✅ Đã thêm sản phẩm!");setCatalogForm({name:"",category:"phan_bon",price:"",unit:"kg",description:"",image_url:""}); setCatalogImageFile(null); setCatalogImagePreview(null);fetchAll()}
+                  setLoading(false)
+                }}>➕ Thêm vào danh mục</button>
+              </div>
+              <div style={{...s.card,marginTop:12}}>
+                <div style={{fontWeight:700,marginBottom:12,color:"#1565c0"}}>📦 Danh mục hiện tại ({catalog.length} sản phẩm)</div>
+                {catalog.length===0 && <div style={{textAlign:"center",padding:20,color:"#888",fontSize:13}}>Chưa có sản phẩm nào</div>}
+                {catalog.map(p=>(
+                  <div key={p.id} style={{display:"flex",alignItems:"center",gap:12,padding:"12px 0",borderBottom:"1px solid #eee"}}>
+                    <div style={{width:48,height:48,background:"#f5f5f5",borderRadius:10,overflow:"hidden",flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center",fontSize:22}}>
+                      {p.image_url?<img src={p.image_url} style={{width:"100%",height:"100%",objectFit:"cover"}}/>:"📦"}
+                    </div>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontWeight:700,fontSize:13}}>{p.name}</div>
+                      <div style={{fontSize:11,color:"#1565c0",marginTop:2}}>{fmt(p.price)}đ/{p.unit}</div>
+                    </div>
+                    <button onClick={async()=>{
+                      const tok = localStorage.getItem(TOKEN_KEY)
+                      await fetch(`${API}/admin/catalog/${p.id}`,{method:"DELETE",headers:{Authorization:`Bearer ${tok}`}})
+                      fetchAll()
+                    }} style={{background:"#ffebee",border:"none",color:"#c62828",padding:"8px 12px",borderRadius:10,cursor:"pointer",fontSize:16}}>🗑</button>
+                  </div>
+                ))}
+              </div>
             </div>
           )}
         </div>

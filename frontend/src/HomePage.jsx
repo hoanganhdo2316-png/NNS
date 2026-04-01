@@ -1,11 +1,13 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
+import useSwipeBack from './useSwipeBack'
+import usePullToRefresh from './usePullToRefresh'
 import { useNavigate } from 'react-router-dom'
 
 const API = 'https://api.nns.id.vn'
 
 const TABS = {
-  robusta: { label:'Robusta London', sub:'ICE Futures · USD/tấn' },
   arabica: { label:'Arabica NY',     sub:'ICE Futures · USc/lb'  },
+  robusta: { label:'Robusta London', sub:'ICE Futures · USD/tấn' },
 }
 
 const fmt = n => n?.toLocaleString('vi-VN') ?? '—'
@@ -204,8 +206,14 @@ function SettingsTab({ isLoggedIn, userName, onLoginClick, onLogout }) {
 export default function HomePage() {
   const navigate = useNavigate()
   const [activeTab, setActiveTab]   = useState('market')
+
+  const handleSwipeBack = useCallback(() => {
+    if (activeTab !== 'market') setActiveTab('market')
+  }, [activeTab])
+  useSwipeBack(handleSwipeBack, activeTab !== 'market')
+
   const [showAd, setShowAd]         = useState(true)
-  const [tab, setTab]               = useState('robusta')
+  const [tab, setTab]               = useState('arabica')
   const [showLogin, setShowLogin]   = useState(false)
   
   const [kg, setKg]                 = useState(() => Number(localStorage.getItem('nns_coffee_kg')) || 0)
@@ -348,9 +356,8 @@ export default function HomePage() {
   }, [])
 
   // Fetch danh sách đại lý
-  useEffect(() => {
+  const loadAgents = useCallback(() => {
     setAgentsLoading(true)
-    
     const fetchAgents = (lat = null, lng = null) => {
       const url = lat && lng ? `${API}/agents?lat=${lat}&lng=${lng}` : `${API}/agents`
       fetch(url)
@@ -358,22 +365,17 @@ export default function HomePage() {
         .then(d => { setAgents(Array.isArray(d) ? d : []); setAgentsLoading(false) })
         .catch(() => { setLocationErr('Không thể tải danh sách đại lý'); setAgentsLoading(false) })
     }
-
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
-        pos => {
-          fetchAgents(pos.coords.latitude, pos.coords.longitude)
-        },
-        err => {
-          console.warn('Geolocation error:', err)
-          fetchAgents()
-        },
+        pos => { fetchAgents(pos.coords.latitude, pos.coords.longitude) },
+        err => { console.warn('Geolocation error:', err); fetchAgents() },
         { timeout: 5000, maximumAge: 60000 }
       )
     } else {
       fetchAgents()
     }
   }, [])
+  useEffect(() => { loadAgents() }, [])
   
   const validAgents = agents.filter(a => a.price > 0)
   const AVG = validAgents.length > 0
@@ -408,6 +410,7 @@ export default function HomePage() {
     const id = setInterval(loadCoffeePrice, 5 * 60 * 1000)
     return () => clearInterval(id)
   }, [])
+  usePullToRefresh(useCallback(() => { loadCoffeePrice(); loadAgents() }, [loadCoffeePrice, loadAgents]))
 
   // Login modal
   useEffect(() => {

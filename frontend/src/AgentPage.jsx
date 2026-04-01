@@ -4,6 +4,14 @@ import Spinner from './Spinner'
 import useSwipeBack from './useSwipeBack'
 import usePullToRefresh from './usePullToRefresh'
 
+const urlBase64ToUint8Array = (base64String) => {
+  const padding = '='.repeat((4 - base64String.length % 4) % 4);
+  const base64 = (base64String + padding).replace(/\-/g, '+').replace(/_/g, '/');
+  const rawData = window.atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; ++i) { outputArray[i] = rawData.charCodeAt(i); }
+  return outputArray;
+}
 const API = 'https://api.nns.id.vn'
 const TOKEN_KEY = 'agent_token'
 
@@ -82,8 +90,33 @@ export default function AgentPage() {
   const [saved, setSaved] = useState('')
   const [showPin, setShowPin] = useState(false)
   const [pinAction, setPinAction] = useState(null)
+  const [catalog, setCatalog] = useState([])
+  const [catalogLoading, setCatalogLoading] = useState(false)
+  const [pushStatus, setPushStatus] = useState(typeof Notification !== 'undefined' ? Notification.permission : 'denied')
 
-  useEffect(() => { if (token) fetchMe() }, [token])
+  const subscribePush = async (jwtToken) => {
+    if (!('serviceWorker' in navigator) || !('PushManager' in window)) return;
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      let sub = await reg.pushManager.getSubscription();
+      if (!sub) {
+        const pk = "BLWrdsyi1pRPb8kZDx9tT12d0LYpSBqsLCgM_Iijd-sgXZppbC7efLmxyd_AVmz9Yaae5g3bw9wBFrHkubuEm8Q";
+        sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(pk) });
+      }
+      await fetch(`${API}/agent/push-subscribe`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${jwtToken}` },
+        body: JSON.stringify(sub)
+      });
+    } catch(e) { console.log('Push err', e) }
+  }
+
+  const askPush = async () => {
+    const perm = await Notification.requestPermission()
+    setPushStatus(perm)
+    if (perm === 'granted') subscribePush(token)
+  }
+
+  useEffect(() => { if (token) { fetchMe(); if (pushStatus === 'granted') subscribePush(token); } }, [token])
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   usePullToRefresh(useCallback(()=>{ if(token) fetchMe() },[token]), !!token)
@@ -206,6 +239,28 @@ export default function AgentPage() {
     setLoading(false)
   }
 
+  const fetchCatalog = async () => {
+    setCatalogLoading(true)
+    try {
+      const r = await fetch(`${API}/catalog`)
+      if (r.ok) setCatalog(await r.json())
+    } catch {}
+    setCatalogLoading(false)
+  }
+
+  const addFromCatalog = async (productId) => {
+    const r = await fetch(`${API}/agent/catalog/${productId}/add`, {method:'POST', headers:{Authorization:`Bearer ${token}`}})
+    const d = await r.json()
+    if (r.ok) { setSaved('✅ Đã thêm sản phẩm!'); fetchMe() }
+    else setSaved('⚠ ' + (d.detail || 'Lỗi'))
+  }
+
+  const removeFromCatalog = async (productId) => {
+    await fetch(`${API}/agent/catalog/${productId}/remove`, {method:'DELETE', headers:{Authorization:`Bearer ${token}`}})
+    setSaved('✅ Đã xóa sản phẩm!')
+    fetchMe()
+  }
+
   const deleteProduct = async (id) => {
     await fetch(`${API}/agent/products/${id}`, {method:'DELETE', headers:{Authorization:`Bearer ${token}`}})
     fetchMe()
@@ -315,6 +370,13 @@ hdr: {padding:'calc(env(safe-area-inset-top) + 16px) 18px 10px',display:'flex',a
 
       {screen==='home' && (
         <div style={{padding:'0 12px 20px'}}>
+          {(pushStatus === 'default' || pushStatus === 'granted') && (
+            <div style={{background:'#fff3e0',borderRadius:12,padding:'12px',marginBottom:12,border:'1px solid #ffe0b2',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+              <div style={{fontSize:13,color:pushStatus==='granted'?'#2e7d32':'#e65100',fontWeight:600}}>{pushStatus==='granted'?'✅ Thông báo đã bật':'🔔 Bật thông báo trên trình duyệt (Khuyên dùng)'}</div>
+              {pushStatus !== 'granted' && <button onClick={askPush} style={{background:'#e65100',color:'#fff',border:'none',padding:'6px 12px',borderRadius:8,fontWeight:700,fontSize:12,cursor:'pointer'}}>Bật ngay</button>}
+              {pushStatus === 'granted' && <button onClick={()=>subscribePush(token)} style={{background:'#2e7d32',color:'#fff',border:'none',padding:'6px 12px',borderRadius:8,fontWeight:700,fontSize:12,cursor:'pointer'}}>↻ Đồng bộ</button>}
+            </div>
+          )}
           {/* STATUS TILE - full width */}
           <div style={{background:'rgba(255,255,255,.12)',borderRadius:18,padding:'20px 22px',marginBottom:12,border:'1px solid rgba(255,255,255,.15)'}}>
             <div style={{fontSize:12,color:'rgba(255,255,255,.7)',marginBottom:10,fontWeight:600,letterSpacing:.5}}>TRẠNG THÁI HÔM NAY</div>
@@ -403,83 +465,55 @@ hdr: {padding:'calc(env(safe-area-inset-top) + 16px) 18px 10px',display:'flex',a
           )}
 
           {/* CỬA HÀNG / SẢN PHẨM */}
+          {/* CỬA HÀNG / SẢN PHẨM */}
           {screen==='shop' && (
             <div>
               <div style={{...s.card,margin:'0 12px 12px'}}>
-                <div style={{fontWeight:700,fontSize:14,marginBottom:12,color:'#111'}}>➕ Thêm sản phẩm</div>
-                
-                <div style={{fontSize:12,color:'#888',marginBottom:4}}>Hình ảnh sản phẩm</div>
-                <div 
-                  onClick={() => document.getElementById('prod-img').click()}
-                  style={{width: '100%', height: 180, background: '#f5f5f5', borderRadius: 12, border: '2px dashed #ddd', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', cursor: 'pointer', marginBottom: 16}}
-                >
-                  {imagePreview ? (
-                    <img src={imagePreview} style={{width: '100%', height: '100%', objectFit: 'cover'}} />
-                  ) : (
-                    <div style={{textAlign: 'center', color: '#999'}}>
-                      <div style={{fontSize: 32}}>📸</div>
-                      <div style={{fontSize: 12}}>Bấm để chọn ảnh</div>
+                <div style={{fontWeight:700,fontSize:14,marginBottom:12,color:'#1565c0'}}>🏪 Sản phẩm đang bán ({(agent.products||[]).length})</div>
+                {(agent.products||[]).length===0 && <div style={{textAlign:'center',padding:16,color:'#888',fontSize:13}}>Chưa có sản phẩm nào. Thêm từ danh mục bên dưới.</div>}
+                {(agent.products||[]).map(p=>(
+                  <div key={p.id} style={{display:'flex',alignItems:'center',gap:12,padding:'10px 0',borderBottom:'1px solid #eee'}}>
+                    <div style={{width:48,height:48,background:'#f5f5f5',borderRadius:10,overflow:'hidden',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',fontSize:20}}>
+                      {p.image_url?<img src={p.image_url} style={{width:'100%',height:'100%',objectFit:'cover'}}/>:'📦'}
                     </div>
-                  )}
-                </div>
-                <input id="prod-img" type="file" accept="image/*" onChange={handleImageChange} style={{display: 'none'}} />
-
-                <div style={{fontSize:12,color:'#888',marginBottom:4}}>Tên sản phẩm</div>
-                <input style={s.inp} placeholder="VD: Phân DAP 64%" value={productForm.name} onChange={e=>setProductForm({...productForm,name:e.target.value})}/>
-                <div style={{fontSize:12,color:'#888',marginBottom:4}}>Danh mục</div>
-                <select style={s.select} value={productForm.category} onChange={e=>setProductForm({...productForm,category:e.target.value})}>
-                  <option value="phan_bon">🌱 Phân bón</option>
-                  <option value="thuoc_bvtv">🧪 Thuốc BVTV</option>
-                  <option value="khac">📦 Khác</option>
-                </select>
-                <div style={{display:'flex',gap:10}}>
-                  <div style={{flex:2}}>
-                    <div style={{fontSize:12,color:'#888',marginBottom:4}}>Giá (VND)</div>
-                    <input style={s.inp} placeholder="0" value={productForm.price} onChange={e=>setProductForm({...productForm,price:e.target.value})} type="number"/>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontWeight:700,fontSize:13,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{p.name}</div>
+                      <div style={{fontSize:11,color:'#1565c0',marginTop:2}}>{fmt(p.price)}đ/{p.unit}</div>
+                    </div>
+                    <button onClick={()=>removeFromCatalog(p.id)} style={{background:'#ffebee',border:'none',color:'#c62828',padding:'8px 12px',borderRadius:10,cursor:'pointer',fontSize:16}}>🗑</button>
                   </div>
-                  <div style={{flex:1}}>
-                    <div style={{fontSize:12,color:'#888',marginBottom:4}}>Đơn vị</div>
-                    <select style={s.select} value={productForm.unit} onChange={e=>setProductForm({...productForm,unit:e.target.value})}>
-                      <option value="kg">kg</option>
-                      <option value="lit">lít</option>
-                      <option value="bao">bao</option>
-                      <option value="chai">chai</option>
-                    </select>
-                  </div>
-                </div>
-                <textarea style={s.textarea} placeholder="Mô tả sản phẩm..." value={productForm.description} onChange={e=>setProductForm({...productForm,description:e.target.value})}/>
-                <button style={s.btn} onClick={addProduct} disabled={!productForm.name||!productForm.price||loading}>
-                  {loading?'Đang thêm...':'➕ Thêm sản phẩm'}
-                </button>
+                ))}
               </div>
-              {(agent.products||[]).length===0 && <div style={{textAlign:'center',padding:20,color:'#888',fontSize:13}}>Chưa có sản phẩm nào</div>}
-              {(agent.products||[]).map(p=>(
-                <div key={p.id} style={{...s.card,margin:'0 12px 10px',padding:'14px 16px',display:'flex',gap:12}}>
-                  <div style={{width:64,height:64,background:'#f5f5f5',borderRadius:10,overflow:'hidden',flexShrink:0}}>
-                    {p.image_url ? (
-                      <img src={p.image_url} style={{width:'100%',height:'100%',objectFit:'cover'}} />
-                    ) : (
-                      <div style={{width:'100%',height:'100%',display:'flex',alignItems:'center',justifyContent:'center',fontSize:24}}>📦</div>
-                    )}
-                  </div>
-                  <div style={{flex:1,minWidth:0}}>
-                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:10}}>
-                      <div style={{flex:1,minWidth:0}}>
-                        <div style={{fontWeight:700,fontSize:14,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{p.name}</div>
-                        <div style={{fontSize:12,color:'#1565c0',marginTop:3,fontWeight:600}}>
-                          {p.category==='phan_bon'?'🌱 Phân bón':p.category==='thuoc_bvtv'?'🧪 Thuốc BVTV':'📦 Khác'} · {fmt(p.price)}đ/{p.unit}
-                        </div>
-                        {p.description && <div style={{fontSize:12,color:'#666',marginTop:4,display:'-webkit-box',WebkitLineClamp:2,WebkitBoxOrient:'vertical',overflow:'hidden'}}>{p.description}</div>}
-                      </div>
-                      <button onClick={()=>deleteProduct(p.id)} style={{background:'#ffebee',border:'none',color:'#c62828',padding:'8px 12px',borderRadius:10,cursor:'pointer',fontSize:16}}>🗑</button>
-                    </div>
-                  </div>
+              <div style={{...s.card,margin:'0 12px 12px'}}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
+                  <div style={{fontWeight:700,fontSize:14,color:'#2e7d32'}}>📦 Danh mục sản phẩm</div>
+                  <button onClick={fetchCatalog} style={{background:'#e8f5e9',border:'none',color:'#2e7d32',padding:'6px 12px',borderRadius:8,cursor:'pointer',fontSize:12,fontWeight:700}}>↻ Tải lại</button>
                 </div>
-              ))}
+                {catalogLoading && <div style={{textAlign:'center',padding:16,color:'#888',fontSize:13}}>⏳ Đang tải...</div>}
+                {!catalogLoading && catalog.length===0 && <div style={{textAlign:'center',padding:16,color:'#888',fontSize:13}}>Chưa có sản phẩm nào trong danh mục</div>}
+                {catalog.map(p=>{
+                  const added = (agent.products||[]).some(ap=>ap.id===p.id)
+                  return (
+                    <div key={p.id} style={{display:'flex',alignItems:'center',gap:12,padding:'10px 0',borderBottom:'1px solid #eee'}}>
+                      <div style={{width:48,height:48,background:'#f5f5f5',borderRadius:10,overflow:'hidden',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',fontSize:20}}>
+                        {p.image_url?<img src={p.image_url} style={{width:'100%',height:'100%',objectFit:'cover'}}/>:'📦'}
+                      </div>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontWeight:700,fontSize:13,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{p.name}</div>
+                        <div style={{fontSize:11,color:'#1565c0',marginTop:2}}>{fmt(p.price)}đ/{p.unit}</div>
+                        {p.description && <div style={{fontSize:11,color:'#888',marginTop:2}}>{p.description}</div>}
+                      </div>
+                      {added ? (
+                        <div style={{background:'#e8f5e9',color:'#2e7d32',padding:'6px 10px',borderRadius:8,fontSize:11,fontWeight:700}}>✓ Đang bán</div>
+                      ) : (
+                        <button onClick={()=>addFromCatalog(p.id)} style={{background:'#1565c0',border:'none',color:'#fff',padding:'8px 12px',borderRadius:10,cursor:'pointer',fontSize:12,fontWeight:700}}>+ Thêm</button>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
             </div>
           )}
-
-          {/* PLACEHOLDER SCREENS */}
           {(screen==='orders'||screen==='ads') && (
             <div style={{textAlign:'center',padding:'60px 20px',color:'#888'}}>
               <div style={{fontSize:48,marginBottom:16}}>{tiles.find(t=>t.id===screen)?.icon}</div>

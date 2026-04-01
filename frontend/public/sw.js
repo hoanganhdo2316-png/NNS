@@ -1,5 +1,5 @@
 // NNS Service Worker — Cache Strategy
-const CACHE_NAME = 'nns-v1'
+const CACHE_NAME = 'nns-v2'
 const STATIC_ASSETS = [
   '/',
   '/index.html',
@@ -143,3 +143,31 @@ function offlinePage() {
     { headers: { 'Content-Type': 'text/html' } }
   )
 }
+
+// ── Web Push Event ────────────────────────────────────────
+self.addEventListener('push', function(event) {
+  let data = {}
+  try {
+    data = event.data.json()
+  } catch(e) {
+    data = { title: 'NNS Đại lý', body: event.data ? event.data.text() : 'Bạn có thông báo mới' }
+  }
+
+  const title = data.title || 'NNS Đại lý'
+  const options = {
+    body: data.body || data.message || '',
+    icon: '/icon-agent-192.png',
+    badge: '/icon-agent-192.png',
+    vibrate: [200, 100, 200, 100, 200, 100, 200],
+    sound: '/notification.mp3',
+    data: { url: data.url || '/agent' }
+  }
+  event.waitUntil(self.registration.showNotification(title, options))
+})
+
+self.addEventListener('notificationclick', function(event) {
+  event.notification.close()
+  event.waitUntil(
+    clients.openWindow(event.notification.data.url)
+  )
+})
