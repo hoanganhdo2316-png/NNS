@@ -100,7 +100,7 @@ export default function AgentPage() {
       const reg = await navigator.serviceWorker.ready;
       let sub = await reg.pushManager.getSubscription();
       if (!sub) {
-        const pk = "BLWrdsyi1pRPb8kZDx9tT12d0LYpSBqsLCgM_Iijd-sgXZppbC7efLmxyd_AVmz9Yaae5g3bw9wBFrHkubuEm8Q";
+        const pk = "BBnjqdVwXti2bEQsrrBsZAy_xYS4OR0oQnt-HvSm_Z8PIInaXzRlSlj7vwDwXxNWzXWOnAAmIPdCaMbsX1IqrwM";
         sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToUint8Array(pk) });
       }
       await fetch(`${API}/agent/push-subscribe`, {
@@ -116,7 +116,21 @@ export default function AgentPage() {
     if (perm === 'granted') subscribePush(token)
   }
 
-  useEffect(() => { if (token) { fetchMe(); if (pushStatus === 'granted') subscribePush(token); } }, [token])
+  useEffect(() => {
+    if (token) {
+      fetchMe()
+      if (pushStatus === 'granted') subscribePush(token)
+      else if (pushStatus === 'default') {
+        // Tự hỏi quyền sau 2 giây khi đăng nhập
+        setTimeout(() => {
+          Notification.requestPermission().then(perm => {
+            setPushStatus(perm)
+            if (perm === 'granted') subscribePush(token)
+          }).catch(() => {})
+        }, 2000)
+      }
+    }
+  }, [token])
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
   usePullToRefresh(useCallback(()=>{ if(token) fetchMe() },[token]), !!token)
@@ -370,11 +384,13 @@ hdr: {padding:'calc(env(safe-area-inset-top) + 16px) 18px 10px',display:'flex',a
 
       {screen==='home' && (
         <div style={{padding:'0 12px 20px'}}>
-          {(pushStatus === 'default' || pushStatus === 'granted') && (
-            <div style={{background:'#fff3e0',borderRadius:12,padding:'12px',marginBottom:12,border:'1px solid #ffe0b2',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-              <div style={{fontSize:13,color:pushStatus==='granted'?'#2e7d32':'#e65100',fontWeight:600}}>{pushStatus==='granted'?'✅ Thông báo đã bật':'🔔 Bật thông báo trên trình duyệt (Khuyên dùng)'}</div>
-              {pushStatus !== 'granted' && <button onClick={askPush} style={{background:'#e65100',color:'#fff',border:'none',padding:'6px 12px',borderRadius:8,fontWeight:700,fontSize:12,cursor:'pointer'}}>Bật ngay</button>}
-              {pushStatus === 'granted' && <button onClick={()=>subscribePush(token)} style={{background:'#2e7d32',color:'#fff',border:'none',padding:'6px 12px',borderRadius:8,fontWeight:700,fontSize:12,cursor:'pointer'}}>↻ Đồng bộ</button>}
+          {pushStatus !== 'granted' && (
+            <div style={{background:pushStatus==='denied'?'#ffebee':'#fff3e0',borderRadius:12,padding:'12px',marginBottom:12,border:`1px solid ${pushStatus==='denied'?'#ffcdd2':'#ffe0b2'}`,display:'flex',justifyContent:'space-between',alignItems:'center',gap:8}}>
+              <div style={{fontSize:13,color:pushStatus==='denied'?'#c62828':'#e65100',fontWeight:600,flex:1}}>
+                {pushStatus==='default' && '🔔 Bật thông báo để nhận lịch giá'}
+                {pushStatus==='denied' && '⚠️ Thông báo bị chặn — Vào Cài đặt trình duyệt để mở lại'}
+              </div>
+              {pushStatus==='default' && <button onClick={askPush} style={{background:'#e65100',color:'#fff',border:'none',padding:'6px 12px',borderRadius:8,fontWeight:700,fontSize:12,cursor:'pointer',whiteSpace:'nowrap'}}>Bật ngay</button>}
             </div>
           )}
           {/* STATUS TILE - full width */}

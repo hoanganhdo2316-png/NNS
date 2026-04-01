@@ -11,11 +11,18 @@ from dotenv import load_dotenv
 from motor.motor_asyncio import AsyncIOMotorClient
 from passlib.context import CryptContext
 from jose import JWTError, jwt
+from pywebpush import webpush, WebPushException
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
+import traceback
 
 # 1. Tải môi trường
 load_dotenv()
 
 app = FastAPI()
+
+@app.on_event("startup")
+async def startup_db_client():
+    scheduler.start()
 
 # 2. CẤU HÌNH CORS
 app.add_middleware(
@@ -36,6 +43,11 @@ users_col = db["users"]
 chat_col = db["chat_history"]
 agri_col = db["agri_data"]
 stats_col = db["usage_stats"]
+
+VAPID_PUBLIC_KEY = "BBnjqdVwXti2bEQsrrBsZAy_xYS4OR0oQnt-HvSm_Z8PIInaXzRlSlj7vwDwXxNWzXWOnAAmIPdCaMbsX1IqrwM"
+VAPID_PRIVATE_KEY = "5UTljMfDeBNbWzfJNpsIITHnaA9JyyNibM9Sr53W9lE"
+VAPID_CLAIMS = {"sub": "mailto:admin@nns.id.vn"}
+scheduler = AsyncIOScheduler()
 
 # 5. Auth config
 SECRET_KEY = os.getenv("SECRET_KEY", "agribot-secret-key-2026")
@@ -239,21 +251,30 @@ async def get_coffee_price():
         kc = yf.Ticker("KC=F")
         rc = yf.Ticker("RC=F")
 
-        kc_hist = kc.history(period="2d")
-        rc_hist = rc.history(period="2d")
+        kc_hist = kc.history(period="1d", interval="15m")
+        rc_hist = rc.history(period="1d", interval="15m")
+
+        # Fallback to daily data if 15m intraday is empty (e.g., outside market hours or delisted temporarily)
+        if kc_hist.empty:
+            kc_hist = kc.history(period="2d")
+        if rc_hist.empty:
+            rc_hist = rc.history(period="2d")
 
         def parse(hist, decimals=2):
             if hist.empty:
-                return None
+                return {"price": 0, "prev": 0, "change": 0, "pct": 0}
             closes = hist["Close"].dropna().tolist()
             curr  = round(closes[-1], decimals)
-            prev  = round(closes[-2], decimals) if len(closes) > 1 else curr
+            if len(closes) > 1:
+                prev = round(closes[-2], decimals)
+            else:
+                prev = curr
             chg   = round(curr - prev, decimals)
             pct   = round((chg / prev * 100), 2) if prev else 0
             return {"price": curr, "prev": prev, "change": chg, "pct": pct}
 
         result = {
-            "arabica": {**parse(kc_hist), "unit": "USc/lb",   "market": "New York · ICE", "symbol": "KC=F"},
+            "arabica": {**parse(kc_hist, 2), "unit": "USc/lb",   "market": "New York · ICE", "symbol": "KC=F"},
             "robusta": {**parse(rc_hist, 0), "unit": "USD/t", "market": "London · ICE",   "symbol": "RC=F"},
             "updated_at": datetime.now().strftime("%H:%M %d/%m/%Y")
         }
@@ -360,6 +381,42 @@ async def get_current_agent(token: str = Depends(oauth2_scheme)):
         raise HTTPException(status_code=403, detail="Tai khoan bi khoa. Lien he 0963025264 de mo lai")
     agent["_id"] = str(agent["_id"])
     return agent
+
+class PushSubscriptionReq(BaseModel):
+    endpoint: str
+    keys: dict
+
+@app.post("/agent/push-subscribe")
+async def agent_push_subscribe(sub: PushSubscriptionReq, user=Depends(get_current_agent)):
+    from bson import ObjectId
+    await db["agents"].update_one(
+        {"_id": ObjectId(user["_id"])},
+        {"$set": {"push_subscription": sub.dict()}}
+    )
+    return {"message": "Subscribed successfully"}
+
+async def send_push_to_agents(message: str):
+    import json as _json
+    import asyncio
+    from concurrent.futures import ThreadPoolExecutor
+    payload = _json.dumps({"title": "NNS Thông báo", "body": message, "url": "/agent"})
+    agents_list = await db["agents"].find({"push_subscription": {"$exists": True}, "active": True}).to_list(500)
+    def do_push(sub, name):
+        try:
+            webpush(
+                subscription_info=sub,
+                data=payload,
+                vapid_private_key=VAPID_PRIVATE_KEY,
+                vapid_claims={"sub": "mailto:admin@nns.id.vn"}
+            )
+            print(f"Push OK for {name}")
+        except WebPushException as e:
+            print(f"Push failed for {name}: {e}")
+            print(f"Response body:{e.response.text if hasattr(e, 'response') and e.response else ''}")
+    loop = asyncio.get_running_loop()
+    with ThreadPoolExecutor() as pool:
+        tasks = [loop.run_in_executor(pool, do_push, a["push_subscription"], a.get("name","")) for a in agents_list]
+        await asyncio.gather(*tasks)
 
 @app.post("/agent/login")
 async def agent_login(req: AgentLoginRequest):
@@ -525,6 +582,33 @@ async def admin_login(req: AdminLoginRequest):
         raise HTTPException(status_code=401, detail="Mat khau khong dung")
     token = create_token({"sub": "admin", "type": "admin"})
     return {"access_token": token, "token_type": "bearer"}
+
+class ScheduleNotificationReq(BaseModel):
+    message: str
+    send_at: str
+
+@app.post("/admin/notifications/schedule")
+async def schedule_agent_notification(req: ScheduleNotificationReq, admin=Depends(verify_admin)):
+    try:
+        from zoneinfo import ZoneInfo
+        VN = ZoneInfo("Asia/Ho_Chi_Minh")
+        # Lưu thông báo vào DB để agent polling
+        await db["announcements"].insert_one({
+            "type": "announcement",
+            "message": req.message,
+            "send_at": req.send_at,
+            "read_by": [],
+            "at": datetime.now(VN)
+        })
+        # Thử schedule Web Push nếu có
+        try:
+            run_date = datetime.fromisoformat(req.send_at.replace("Z", "+00:00"))
+            scheduler.add_job(send_push_to_agents, "date", run_date=run_date, args=[req.message])
+        except:
+            pass
+        return {"ok": True, "status": "Scheduled successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 @app.get("/admin/agents")
 async def admin_get_agents(admin=Depends(verify_admin)):
@@ -711,3 +795,83 @@ async def follow_status(agent_id: str, current_user=Depends(get_current_user)):
         return {"following": False, "followers": 0}
     followers = agent.get("followers", [])
     return {"following": phone in followers, "followers": len(followers)}
+
+# ── AGENT NOTIFICATIONS (thông báo từ admin) ──
+@app.get("/agent/announcements")
+async def agent_get_announcements(agent=Depends(get_current_agent)):
+    # Lấy thông báo dạng broadcast từ admin (type=announcement)
+    nots = await db["announcements"].find({}).sort("at", -1).to_list(20)
+    for n in nots:
+        n["_id"] = str(n["_id"])
+    return nots
+
+# ── CATALOG (Admin quản lý sản phẩm toàn hệ thống) ──────
+class CatalogProduct(BaseModel):
+    name: str
+    category: str
+    price: int
+    unit: str
+    description: str = ""
+    image_url: str = ""
+
+@app.get("/catalog")
+async def get_catalog():
+    products = await db["catalog"].find({}).to_list(200)
+    for p in products:
+        p["_id"] = str(p["_id"])
+    return products
+
+@app.post("/admin/catalog")
+async def admin_add_catalog(product: CatalogProduct, admin=Depends(verify_admin)):
+    p = product.dict()
+    p["id"] = str(ObjectId())
+    p["created_at"] = datetime.now(VN_TZ)
+    await db["catalog"].insert_one(p)
+    return {"ok": True, "id": p["id"]}
+
+@app.delete("/admin/catalog/{product_id}")
+async def admin_delete_catalog(product_id: str, admin=Depends(verify_admin)):
+    await db["catalog"].delete_one({"id": product_id})
+    return {"ok": True}
+
+@app.post("/agent/catalog/{product_id}/add")
+async def agent_add_catalog_product(product_id: str, agent=Depends(get_current_agent)):
+    product = await db["catalog"].find_one({"id": product_id})
+    if not product:
+        raise HTTPException(status_code=404, detail="Không tìm thấy sản phẩm")
+    product.pop("_id", None)
+    existing = await db["agents"].find_one({"_id": ObjectId(agent["_id"]), "products.id": product_id})
+    if existing:
+        raise HTTPException(status_code=400, detail="Sản phẩm đã có trong danh sách")
+    await db["agents"].update_one(
+        {"_id": ObjectId(agent["_id"])},
+        {"$push": {"products": product}}
+    )
+    return {"ok": True}
+
+@app.delete("/agent/catalog/{product_id}/remove")
+async def agent_remove_catalog_product(product_id: str, agent=Depends(get_current_agent)):
+    await db["agents"].update_one(
+        {"_id": ObjectId(agent["_id"])},
+        {"$pull": {"products": {"id": product_id}}}
+    )
+    return {"ok": True}
+
+# ── UPLOAD ẢNH SẢN PHẨM (Admin) ──────────────────────────
+from fastapi import UploadFile, File
+import base64, uuid
+
+@app.post("/admin/catalog/upload-image")
+async def admin_upload_catalog_image(file: UploadFile = File(...), admin=Depends(verify_admin)):
+    ext = file.filename.split(".")[-1].lower()
+    if ext not in ["jpg","jpeg","png","webp"]:
+        raise HTTPException(status_code=400, detail="Chỉ hỗ trợ jpg, png, webp")
+    data = await file.read()
+    if len(data) > 5 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="File quá lớn (tối đa 5MB)")
+    filename = f"{uuid.uuid4().hex}.{ext}"
+    upload_dir = "/root/NNS/frontend/dist/uploads"
+    os.makedirs(upload_dir, exist_ok=True)
+    with open(f"{upload_dir}/{filename}", "wb") as f:
+        f.write(data)
+    return {"url": f"https://nns.id.vn/uploads/{filename}"}
