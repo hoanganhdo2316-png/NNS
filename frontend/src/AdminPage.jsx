@@ -1,5 +1,6 @@
 const toVN = s => s ? new Date((s+'').endsWith('Z')||(s+'').includes('+') ? s : s+'Z').toLocaleString('vi-VN') : '';
 import { useState, useEffect, useCallback } from 'react'
+import { fetchWithAuth } from './fetchWithAuth'
 import Spinner from './Spinner'
 import useSwipeBack from './useSwipeBack'
 import usePullToRefresh from './usePullToRefresh'
@@ -9,6 +10,7 @@ const API = (typeof window !== 'undefined' && (window.location.hostname === 'loc
   ? 'http://localhost:8000'
   : 'https://api.nns.id.vn'
 const TOKEN_KEY = 'admin_token'
+const REFRESH_KEY = 'admin_refresh_token'
 
 // Set manifest PWA riêng cho admin
 ;(()=>{
@@ -80,13 +82,13 @@ export default function AdminPage() {
     const headers = { Authorization: `Bearer ${tok}`, 'Content-Type': 'application/json' }
     const safe = (p) => p.catch(() => null)
     const [a, u, l, ad, tr, nt, cat] = await Promise.all([
-      safe(fetch(`${API}/admin/agents`, {headers: getHeaders()}).then(r=>r.ok?r.json():[])),
-      safe(fetch(`${API}/admin/users`, {headers: getHeaders()}).then(r=>r.ok?r.json():[])),
-      safe(fetch(`${API}/admin/logs`, {headers: getHeaders()}).then(r=>r.ok?r.json():[])),
-      safe(fetch(`${API}/admin/ads`, {headers: getHeaders()}).then(r=>r.ok?r.json():{})),
-      safe(fetch(`${API}/admin/traffic`, {headers: getHeaders()}).then(r=>r.ok?r.json():[])),
-      safe(fetch(`${API}/admin/notifications`, {headers: getHeaders()}).then(r=>r.ok?r.json():[])),
-      safe(fetch(`${API}/catalog`, {headers: getHeaders()}).then(r=>r.ok?r.json():[])),
+      safe(fetchWithAuth(`${API}/admin/agents`, {method:'GET'}, TOKEN_KEY, REFRESH_KEY, API).then(r=>r.ok?r.json():[])),
+      safe(fetchWithAuth(`${API}/admin/users`, {method:'GET'}, TOKEN_KEY, REFRESH_KEY, API).then(r=>r.ok?r.json():[])),
+      safe(fetchWithAuth(`${API}/admin/logs`, {method:'GET'}, TOKEN_KEY, REFRESH_KEY, API).then(r=>r.ok?r.json():[])),
+      safe(fetchWithAuth(`${API}/admin/ads`, {method:'GET'}, TOKEN_KEY, REFRESH_KEY, API).then(r=>r.ok?r.json():{})),
+      safe(fetchWithAuth(`${API}/admin/traffic`, {method:'GET'}, TOKEN_KEY, REFRESH_KEY, API).then(r=>r.ok?r.json():[])),
+      safe(fetchWithAuth(`${API}/admin/notifications`, {method:'GET'}, TOKEN_KEY, REFRESH_KEY, API).then(r=>r.ok?r.json():[])),
+      safe(fetchWithAuth(`${API}/catalog`, {method:'GET'}, TOKEN_KEY, REFRESH_KEY, API).then(r=>r.ok?r.json():[])),
     ])
     if (Array.isArray(a)) setAgents(a)
     if (Array.isArray(u)) setUsers(u)
@@ -107,12 +109,13 @@ export default function AdminPage() {
       const d = await r.json()
       if (!r.ok) { setError(d.detail||'Sai mật khẩu'); setLoading(false); return }
       localStorage.setItem(TOKEN_KEY, d.access_token)
+      if (d.refresh_token) localStorage.setItem(REFRESH_KEY, d.refresh_token)
       setToken(d.access_token)
     } catch { setError('Không kết nối được server') }
     setLoading(false)
   }
 
-  const logout = () => { localStorage.removeItem(TOKEN_KEY); setToken(null) }
+  const logout = () => { localStorage.removeItem(TOKEN_KEY); localStorage.removeItem(REFRESH_KEY); setToken(null) }
 
   const lockAgent = async (id, name) => {
     if (!confirm(`Khóa/mở khóa đại lý ${name}?`)) return

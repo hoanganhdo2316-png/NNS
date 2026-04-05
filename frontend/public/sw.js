@@ -1,5 +1,5 @@
 // NNS Service Worker — Cache Strategy
-const CACHE_NAME = 'nns-v2'
+const CACHE_NAME = 'nns-v5'
 const STATIC_ASSETS = [
   '/',
   '/index.html',
@@ -54,12 +54,18 @@ self.addEventListener('fetch', (event) => {
     return
   }
 
-  // Static assets → Cache first
+  // Static assets → Network first (tránh cache cũ gây crash)
   if (request.destination === 'script' ||
       request.destination === 'style' ||
       request.destination === 'image' ||
       request.destination === 'font') {
-    event.respondWith(cacheFirst(request))
+    event.respondWith(networkFirst(request))
+    return
+  }
+
+  // Zalo callback → luôn network, không cache
+  if (url.pathname.startsWith('/auth/zalo')) {
+    event.respondWith(fetch(request))
     return
   }
 

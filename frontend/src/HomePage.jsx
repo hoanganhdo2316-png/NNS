@@ -1,3 +1,5 @@
+
+
 import { useState, useEffect, useCallback } from 'react'
 import useSwipeBack from './useSwipeBack'
 import usePullToRefresh from './usePullToRefresh'
@@ -6,8 +8,8 @@ import { useNavigate } from 'react-router-dom'
 const API = 'https://api.nns.id.vn'
 
 const TABS = {
-  arabica: { label:'Arabica NY',     sub:'ICE Futures · USc/lb'  },
-  robusta: { label:'Robusta London', sub:'ICE Futures · USD/tấn' },
+  domestic: { label:'Giá trong nước', sub:'Trung bình đại lý · VNĐ/kg' },
+  arabica:  { label:'Arabica NY',     sub:'ICE Futures · USc/lb'  },
 }
 
 const fmt = n => n?.toLocaleString('vi-VN') ?? '—'
@@ -37,19 +39,22 @@ function CoffeePriceDisplay({ data, loading, usdVnd, vcbAt, tab, onRefresh }) {
     </div>
   )
 
-  const d      = tab === 'arabica' ? data.arabica : data.robusta
-  const isUp   = d.change >= 0
-  const upClr  = 'var(--green)'
-  const dnClr  = 'var(--red)'
-  const clr    = isUp ? upClr : dnClr
-  const bg     = isUp ? 'var(--green3)' : 'var(--red2)'
-  const bdr    = isUp ? 'var(--bdr2)'   : '#f5c6c2'
+  const d      = (tab === 'arabica' ? data.arabica : data.domestic) || {price:0, prev:0, change:0, pct:0, unit:'', market:''}
+  const isUp   = d.change > 0
+  const isFlat = d.change === 0
+  const upClr  = '#1b5e20'
+  const dnClr  = '#b71c1c'
+  const flatClr = '#f9a825'
+  const clr    = isFlat ? flatClr : isUp ? upClr : dnClr
+  const bg     = 'var(--surf)'
+  const bdr    = isFlat ? '#f9a825' : isUp ? 'var(--green)' : 'var(--red)'
+  const txtClr = 'var(--txt)'
 
-  const vnd = usdVnd
-    ? tab === 'arabica'
-      ? Math.round(d.price / 100 * 2.20462 * usdVnd)
-      : Math.round(d.price / 1000 * usdVnd)
-    : null
+  const vnd = tab === 'domestic'
+    ? d.price
+    : usdVnd
+      ? Math.round(d.price / 100 / 0.453592 * usdVnd)
+      : null
 
   return (
     <div style={{display:'flex',flexDirection:'column',gap:8}}>
@@ -59,12 +64,12 @@ function CoffeePriceDisplay({ data, loading, usdVnd, vcbAt, tab, onRefresh }) {
         borderRadius:'var(--rs)',padding:'12px 14px',
       }}>
         <div>
-          <div style={{fontSize:11,color:'var(--txt2)',fontWeight:500,marginBottom:2}}>{d.market}</div>
+          <div style={{fontSize:11,color:'var(--txt3)',fontWeight:500,marginBottom:2}}>{d.market}</div>
           <div style={{
             fontSize:24,fontWeight:800,letterSpacing:'-.5px',
             fontFamily:'JetBrains Mono,monospace',color:clr,lineHeight:1,
           }}>
-            {tab === 'arabica' ? d.price.toFixed(2) : d.price.toLocaleString('en-US')}
+            {tab === 'domestic' ? d.price.toLocaleString('vi-VN') : d.price.toFixed(2)}
             <span style={{fontSize:12,fontWeight:400,color:'var(--txt3)',marginLeft:5}}>{d.unit}</span>
           </div>
         </div>
@@ -72,7 +77,7 @@ function CoffeePriceDisplay({ data, loading, usdVnd, vcbAt, tab, onRefresh }) {
           <div style={{
             fontSize:14,fontWeight:700,fontFamily:'JetBrains Mono,monospace',color:clr,
           }}>
-            {isUp ? '▲ +' : '▼ '}{Math.abs(d.change).toFixed(tab==='arabica'?2:0)}
+            {isUp ? '▲ +' : '▼ '}{tab==='arabica' ? Math.abs(d.change).toFixed(2) : Math.abs(d.change).toLocaleString('vi-VN')}
           </div>
           <div style={{
             fontSize:12,fontWeight:600,fontFamily:'JetBrains Mono,monospace',
@@ -81,11 +86,12 @@ function CoffeePriceDisplay({ data, loading, usdVnd, vcbAt, tab, onRefresh }) {
             {isUp ? '+' : ''}{d.pct}%
           </div>
           <div style={{fontSize:10,color:'var(--txt3)',marginTop:4}}>
-            Hôm qua: {tab==='arabica' ? d.prev.toFixed(2) : d.prev.toLocaleString('en-US')}
+            <span style={{color:'var(--txt3)'}}>Hôm qua: {tab==='arabica' ? d.prev.toFixed(2) : d.prev.toLocaleString('vi-VN')}</span>
           </div>
         </div>
       </div>
 
+      {tab !== 'domestic' && (
       <div style={{
         display:'flex',alignItems:'center',justifyContent:'space-between',
         background:'var(--bg2)',border:'1.5px solid var(--bdr)',
@@ -108,10 +114,11 @@ function CoffeePriceDisplay({ data, loading, usdVnd, vcbAt, tab, onRefresh }) {
           <div style={{fontSize:10,color:'var(--txt3)',marginTop:2}}>{vcbAt || ''}</div>
         </div>
       </div>
+      )}
 
       <div style={{display:'flex',alignItems:'center',justifyContent:'space-between'}}>
         <div style={{fontSize:10,color:'var(--txt3)'}}>
-          Nguồn: Yahoo Finance · Delay ~15 phút
+          {tab === 'domestic' ? 'Dựa trên giá trung bình của tất cả đại lý' : 'Nguồn: Yahoo Finance · Delay ~15 phút'}
         </div>
         <div style={{display:'flex',alignItems:'center',gap:6}}>
           {loading && <span style={{fontSize:10,color:'var(--txt3)'}}>Đang cập nhật...</span>}
@@ -213,7 +220,7 @@ export default function HomePage() {
   useSwipeBack(handleSwipeBack, activeTab !== 'market')
 
   const [showAd, setShowAd]         = useState(true)
-  const [tab, setTab]               = useState('arabica')
+  const [tab, setTab]               = useState('domestic')
   const [showLogin, setShowLogin]   = useState(false)
   
   const [kg, setKg]                 = useState(() => Number(localStorage.getItem('nns_coffee_kg')) || 0)
@@ -267,6 +274,7 @@ export default function HomePage() {
   }
 
   const [loginPhone, setLoginPhone] = useState('')
+  const [loginProvince, setLoginProvince] = useState('')
   const [loginPass, setLoginPass]   = useState('')
   const [loginErr, setLoginErr]     = useState('')
   const [loginLoading, setLoginLoading] = useState(false)
@@ -278,6 +286,8 @@ export default function HomePage() {
     const t = setTimeout(() => setSplash(false), 1500)
     return () => clearTimeout(t)
   }, [])
+
+  
 
   useEffect(() => {
     localStorage.setItem('nns_coffee_kg', kg)
@@ -324,28 +334,54 @@ export default function HomePage() {
   const submitRegister = async () => {
     setLoginErr('')
     if (!regName || !loginPhone || !loginPass) {
-      setLoginErr('Vui lòng điền đủ thông tin')
-      return
+      setLoginErr('Vui lòng điền đủ họ tên, số điện thoại và mật khẩu'); return
     }
     setLoginLoading(true)
     try {
       const r = await fetch(`${API}/register`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ho_ten: regName, so_dien_thoai: loginPhone, password: loginPass })
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ho_ten: regName, so_dien_thoai: loginPhone, password: loginPass, dia_chi: {tinh: loginProvince}})
       })
       const d = await r.json()
       if (r.ok) {
-        setIsRegistering(false)
-        setLoginErr('✅ Đăng ký thành công! Hãy đăng nhập.')
+        // Tự động đăng nhập sau khi đăng ký
+        const loginData = new URLSearchParams()
+        loginData.append('username', loginPhone)
+        loginData.append('password', loginPass)
+        const r2 = await fetch(`${API}/login`, {
+          method: 'POST', headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+          body: loginData
+        })
+        const d2 = await r2.json()
+        if (r2.ok) {
+          localStorage.setItem('agribot_token', d2.access_token)
+          localStorage.setItem('agribot_user', d2.ho_ten)
+          setIsLoggedIn(true)
+          setUserName(d2.ho_ten)
+          setShowLogin(false)
+        } else {
+          setIsRegistering(false)
+          setLoginErr('✅ Đăng ký thành công! Hãy đăng nhập.')
+        }
       } else {
         setLoginErr(d.detail || 'Đăng ký thất bại')
       }
-    } catch {
-      setLoginErr('Không kết nối được server')
-    }
+    } catch { setLoginErr('Không kết nối được server') }
     setLoginLoading(false)
   }
+
+  // Zalo OAuth helpers
+  const _genVerifier = () => {
+    const arr = new Uint8Array(32)
+    crypto.getRandomValues(arr)
+    return btoa(String.fromCharCode(...arr)).replace(/\+/g,'-').replace(/\//g,'_').replace(/=/g,'')
+  }
+  const _genChallenge = async (v) => {
+    const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(v))
+    return btoa(String.fromCharCode(...new Uint8Array(digest))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=/g,'')
+  }
+
+
 
   // Fetch quảng cáo
   useEffect(() => {
@@ -369,7 +405,7 @@ export default function HomePage() {
       navigator.geolocation.getCurrentPosition(
         pos => { fetchAgents(pos.coords.latitude, pos.coords.longitude) },
         err => { console.warn('Geolocation error:', err); fetchAgents() },
-        { timeout: 5000, maximumAge: 60000 }
+        { timeout: 5000, maximumAge: 86400000 }
       )
     } else {
       fetchAgents()
@@ -385,6 +421,23 @@ export default function HomePage() {
   const total = kg * AVG
   const diff  = 0
 
+  // Inject giá trong nước vào coffeePrice
+  useEffect(() => {
+    if (AVG > 0) {
+      setCoffeePrice(prev => ({
+        ...(prev || {}),
+        domestic: {
+          price: AVG,
+          prev: AVG,
+          change: 0,
+          pct: 0,
+          unit: 'VNĐ/kg',
+          market: `${validAgents.length} đại lý · Trung bình`,
+        }
+      }))
+    }
+  }, [AVG])
+
   // Fetch tỷ giá
   useEffect(() => {
     fetch(`${API}/exchange-rate`)
@@ -394,20 +447,31 @@ export default function HomePage() {
   }, [])
 
   // Fetch giá cà phê quốc tế
-  const loadCoffeePrice = () => {
+  const loadCoffeePrice = useCallback(() => {
     setCoffeeLoading(true)
     fetch(`${API}/coffee-price`)
       .then(r => r.ok ? r.json() : null)
       .then(d => {
-        if (d && d.robusta && d.arabica) { setCoffeePrice(d) }
+        if (d && d.arabica) {
+          setCoffeePrice(prev => ({
+            ...d,
+            domestic: prev?.domestic || null
+          }))
+        }
         setCoffeeLoading(false)
       })
       .catch(() => setCoffeeLoading(false))
-  }
+  }, [])
 
   useEffect(() => {
     loadCoffeePrice()
     const id = setInterval(loadCoffeePrice, 5 * 60 * 1000)
+    return () => clearInterval(id)
+  }, [])
+
+  // Poll agents mỗi 30 giây để cập nhật giá realtime
+  useEffect(() => {
+    const id = setInterval(() => loadAgents(), 30000)
     return () => clearInterval(id)
   }, [])
   usePullToRefresh(useCallback(() => { loadCoffeePrice(); loadAgents() }, [loadCoffeePrice, loadAgents]))
@@ -452,7 +516,7 @@ export default function HomePage() {
           --yellow:#e65100;--yellow2:#fff3e0;
           --r:14px;--rs:10px;
         }
-        html,body{background:var(--bg);color:var(--txt);font-family:'Be Vietnam Pro',sans-serif;overscroll-behavior:none;-webkit-text-size-adjust:100%;}
+        html{background:#f2f7f2;}body{background:var(--bg);color:var(--txt);font-family:'Be Vietnam Pro',sans-serif;overscroll-behavior-y:contain;-webkit-text-size-adjust:100%;}
         .page{min-height:100dvh;padding-bottom:calc(80px + env(safe-area-inset-bottom));}
 
         .tb{position:sticky;top:0;z-index:99;background:rgba(255,255,255,0.96);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border-bottom:2px solid var(--bdr);padding:10px 14px;padding-top:calc(10px + env(safe-area-inset-top));display:flex;align-items:center;gap:10px;box-shadow:0 2px 12px rgba(46,125,50,0.08);}
@@ -532,7 +596,7 @@ export default function HomePage() {
 
         .ctabs{display:flex;gap:8px;margin-bottom:12px;}
         .ctab{flex:1;background:var(--bg2);border:1.5px solid var(--bdr);border-radius:var(--rs);padding:9px 4px;cursor:pointer;text-align:center;-webkit-tap-highlight-color:transparent;transition:all .2s;}
-        .ctab.on{border-color:var(--green);background:var(--green3);}
+        .ctab.on{border-color:var(--green);background:#fff;}
         .ctab-n{font-size:13px;font-weight:700;color:var(--txt2);display:block;}
         .ctab.on .ctab-n{color:var(--green);}
         .ctab-sub{font-size:10px;color:var(--txt3);display:block;margin-top:2px;}
@@ -570,7 +634,7 @@ export default function HomePage() {
         .m-inp{width:100%;padding:13px 14px;background:var(--bg2);border:1.5px solid var(--bdr);border-radius:var(--rs);color:var(--txt);font-family:inherit;font-size:15px;outline:none;margin-bottom:10px;-webkit-appearance:none;transition:border-color .2s;}
         .m-inp:focus{border-color:var(--green);}
         .m-inp::placeholder{color:var(--txt3);}
-        .m-btn{width:100%;padding:14px;background:var(--green);color:#fff;border:none;border-radius:var(--rs);font-family:inherit;font-size:15px;font-weight:700;cursor:pointer;margin-top:4px;-webkit-tap-highlight-color:transparent;box-shadow:0 4px 12px rgba(46,125,50,0.3);}
+        .m-btn{width:100%;padding:14px;background:#fff;color:var(--green);border:2px solid var(--green);border-radius:var(--rs);font-family:inherit;font-size:15px;font-weight:700;cursor:pointer;margin-top:4px;-webkit-tap-highlight-color:transparent;box-shadow:0 2px 8px rgba(46,125,50,0.1);}
         .m-btn:active{opacity:.9;}
         .m-or{display:flex;align-items:center;gap:10px;color:var(--txt3);font-size:12px;margin:14px 0;}
         .m-or::before,.m-or::after{content:'';flex:1;height:1px;background:var(--bdr);}
@@ -859,16 +923,29 @@ export default function HomePage() {
             
             {loginErr && <div style={{color:loginErr.includes('✅')?'var(--green)':'var(--red)', fontSize:13, marginBottom:10, textAlign:'center', background:loginErr.includes('✅')?'var(--green3)':'var(--red2)', padding:8, borderRadius:8}}>{loginErr}</div>}
             
+
+
             {isRegistering && (
-              <input className="m-inp" placeholder="Họ và tên" value={regName} onChange={e=>setRegName(e.target.value)} />
+              <>
+                <input className="m-inp" placeholder="Họ và tên" value={regName} onChange={e=>setRegName(e.target.value)} />
+                <select className="m-inp" value={loginProvince} onChange={e=>setLoginProvince(e.target.value)} style={{color: loginProvince ? 'inherit' : '#8aaa8a'}}>
+                  <option value="">-- Chọn tỉnh/thành phố --</option><option value="Lâm Đồng">Lâm Đồng</option><option value="Đắk Lắk">Đắk Lắk</option><option value="Gia Lai">Gia Lai</option><option value="Đắk Nông">Đắk Nông</option><option value="Kon Tum">Kon Tum</option><option disabled="true">──────────</option><option value="An Giang">An Giang</option><option value="Bà Rịa - Vũng Tàu">Bà Rịa - Vũng Tàu</option><option value="Bắc Giang">Bắc Giang</option><option value="Bắc Kạn">Bắc Kạn</option><option value="Bạc Liêu">Bạc Liêu</option><option value="Bắc Ninh">Bắc Ninh</option><option value="Bến Tre">Bến Tre</option><option value="Bình Định">Bình Định</option><option value="Bình Dương">Bình Dương</option><option value="Bình Phước">Bình Phước</option><option value="Bình Thuận">Bình Thuận</option><option value="Cà Mau">Cà Mau</option><option value="Cần Thơ">Cần Thơ</option><option value="Cao Bằng">Cao Bằng</option><option value="Đà Nẵng">Đà Nẵng</option><option value="Điện Biên">Điện Biên</option><option value="Đồng Nai">Đồng Nai</option><option value="Đồng Tháp">Đồng Tháp</option><option value="Hà Giang">Hà Giang</option><option value="Hà Nam">Hà Nam</option><option value="Hà Nội">Hà Nội</option><option value="Hà Tĩnh">Hà Tĩnh</option><option value="Hải Dương">Hải Dương</option><option value="Hải Phòng">Hải Phòng</option><option value="Hậu Giang">Hậu Giang</option><option value="Hòa Bình">Hòa Bình</option><option value="Hưng Yên">Hưng Yên</option><option value="Khánh Hòa">Khánh Hòa</option><option value="Kiên Giang">Kiên Giang</option><option value="Lai Châu">Lai Châu</option><option value="Lạng Sơn">Lạng Sơn</option><option value="Lào Cai">Lào Cai</option><option value="Long An">Long An</option><option value="Nam Định">Nam Định</option><option value="Nghệ An">Nghệ An</option><option value="Ninh Bình">Ninh Bình</option><option value="Ninh Thuận">Ninh Thuận</option><option value="Phú Thọ">Phú Thọ</option><option value="Phú Yên">Phú Yên</option><option value="Quảng Bình">Quảng Bình</option><option value="Quảng Nam">Quảng Nam</option><option value="Quảng Ngãi">Quảng Ngãi</option><option value="Quảng Ninh">Quảng Ninh</option><option value="Quảng Trị">Quảng Trị</option><option value="Sóc Trăng">Sóc Trăng</option><option value="Sơn La">Sơn La</option><option value="Tây Ninh">Tây Ninh</option><option value="Thái Bình">Thái Bình</option><option value="Thái Nguyên">Thái Nguyên</option><option value="Thanh Hóa">Thanh Hóa</option><option value="Thừa Thiên Huế">Thừa Thiên Huế</option><option value="Tiền Giang">Tiền Giang</option><option value="TP. Hồ Chí Minh">TP. Hồ Chí Minh</option><option value="Trà Vinh">Trà Vinh</option><option value="Tuyên Quang">Tuyên Quang</option><option value="Vĩnh Long">Vĩnh Long</option><option value="Vĩnh Phúc">Vĩnh Phúc</option><option value="Yên Bái">Yên Bái</option>
+                </select>
+              </>
             )}
             <input className="m-inp" placeholder="Số điện thoại" inputMode="tel" value={loginPhone} onChange={e=>setLoginPhone(e.target.value)} />
-            <input className="m-inp" placeholder="Mật khẩu" type="password" value={loginPass} onChange={e=>setLoginPass(e.target.value)} onKeyDown={e=>e.key==='Enter'&&(isRegistering?submitRegister():submitLogin())}/>
-            
-            <button className="m-btn" onClick={isRegistering?submitRegister:submitLogin} disabled={loginLoading}>
-              {loginLoading ? 'Đang xử lý...' : (isRegistering ? 'Tham gia ngay' : '🌱 Đăng nhập')}
-            </button>
-            <div className="m-or">hoặc</div>
+            <input className="m-inp" placeholder="Mật khẩu" type="password" value={loginPass} onChange={e=>setLoginPass(e.target.value)} onKeyDown={e=>e.key==='Enter'&&!isRegistering&&submitLogin()}/>
+            {!isRegistering && (
+              <button className="m-btn" onClick={submitLogin} disabled={loginLoading}>
+                {loginLoading ? 'Đang xử lý...' : '🌱 Đăng nhập'}
+              </button>
+            )}
+            {isRegistering && (
+              <button className="m-btn" onClick={submitRegister} disabled={loginLoading}>
+                {loginLoading ? 'Đang xử lý...' : 'Tham gia ngay'}
+              </button>
+            )}
+            <div id="recaptcha-container"></div>
             <div className="m-reg">
               {isRegistering ? (
                 <>Đã có tài khoản? <a onClick={()=>{setIsRegistering(false); setLoginErr('')}}>Đăng nhập</a></>

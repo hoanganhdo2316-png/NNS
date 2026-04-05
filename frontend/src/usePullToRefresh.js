@@ -1,132 +1,122 @@
 import { useEffect, useRef } from 'react'
 
 export default function usePullToRefresh(onRefresh, enabled = true) {
-  const state = useRef({ startY: 0, pulling: false, currentY: 0, active: false })
-  const indicator = useRef(null)
+  const startY = useRef(0)
+  const pulling = useRef(false)
+  const active = useRef(false)
+  const indicatorRef = useRef(null)
 
   useEffect(() => {
     if (!enabled) return
 
-    const getOrCreateIndicator = () => {
-      if (indicator.current) return indicator.current
+    const createIndicator = () => {
       const el = document.createElement('div')
-      el.style.cssText = `
-        position:fixed;top:calc(env(safe-area-inset-top) - 50px);left:50%;
-        margin-left:-19px;z-index:9999;
-        background:rgba(255,255,255,0.92);backdrop-filter:blur(10px);
-        border-radius:50%;width:38px;height:38px;
-        display:flex;align-items:center;justify-content:center;
-        box-shadow:0 3px 14px rgba(0,0,0,.15);
-        transition: transform 0s;
-        pointer-events: none;
-      `
-      el.innerHTML = `
-        <style>
-          @keyframes _ptr_spin {
-            from { transform: rotate(0deg) }
-            to   { transform: rotate(360deg) }
-          }
-          ._ptr_ring {
-            width:22px;height:22px;
-            border:2.5px solid #ddd;
-            border-top-color:#1565c0;
-            border-radius:50%;
-            transition: transform 0s;
-          }
-          ._ptr_ring.spin {
-            animation:_ptr_spin .75s linear infinite;
-          }
-        </style>
-        <div class="_ptr_ring"></div>
-      `
+      el.id = '__ptr__'
+      el.style.cssText = [
+        'position:fixed',
+        'top:12px',
+        'left:50%',
+        'transform:translateX(-50%) translateY(-80px)',
+        'z-index:9999',
+        'width:36px',
+        'height:36px',
+        'border-radius:50%',
+        'background:white',
+        'box-shadow:0 2px 12px rgba(0,0,0,.15)',
+        'display:flex',
+        'align-items:center',
+        'justify-content:center',
+        'transition:transform .2s ease',
+        'pointer-events:none',
+      ].join(';')
+      el.innerHTML = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2e7d32" stroke-width="2.5" stroke-linecap="round"><path d="M12 2v6M12 22v-6M4.93 4.93l4.24 4.24M14.83 14.83l4.24 4.24M2 12h6M22 12h-6M4.93 19.07l4.24-4.24M14.83 9.17l4.24-4.24"/></svg>`
       document.body.appendChild(el)
-      indicator.current = el
+      indicatorRef.current = el
       return el
     }
 
-    const removeIndicator = () => {
-      if (!indicator.current) return
-      const el = indicator.current
-      el.style.transition = 'transform 0.3s cubic-bezier(0.2,0.8,0.2,1), opacity 0.3s'
-      el.style.transform = 'translateY(0px)'
+    const showIndicator = (progress) => {
+      let el = indicatorRef.current || createIndicator()
+      const y = Math.min(progress * 0.4, 60)
+      el.style.transition = 'none'
+      el.style.transform = `translateX(-50%) translateY(${y - 80}px)`
+      el.style.opacity = Math.min(progress / 60, 1).toString()
+    }
+
+    const spinIndicator = () => {
+      const el = indicatorRef.current
+      if (!el) return
+      el.style.transition = 'transform .2s ease'
+      el.style.transform = 'translateX(-50%) translateY(0px)'
+      el.innerHTML = `<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#2e7d32" stroke-width="2.5" stroke-linecap="round" style="animation:__ptr_spin .7s linear infinite"><style>@keyframes __ptr_spin{to{transform:rotate(360deg)}}</style><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/></svg>`
+    }
+
+    const hideIndicator = () => {
+      const el = indicatorRef.current
+      if (!el) return
+      el.style.transition = 'transform .3s ease, opacity .3s ease'
+      el.style.transform = 'translateX(-50%) translateY(-80px)'
       el.style.opacity = '0'
-      setTimeout(() => { 
-        if (indicator.current === el) {
-           el.remove(); indicator.current = null 
-        }
+      setTimeout(() => {
+        if (el.parentNode) el.parentNode.removeChild(el)
+        if (indicatorRef.current === el) indicatorRef.current = null
       }, 300)
     }
 
     const onTouchStart = (e) => {
-      if (window.scrollY <= 0 && !state.current.active) {
-        state.current.startY = e.touches[0].clientY
-        state.current.pulling = true
-        state.current.currentY = 0
+      if (active.current) return
+      if (window.scrollY === 0) {
+        startY.current = e.touches[0].clientY
+        pulling.current = true
       }
     }
 
     const onTouchMove = (e) => {
-      if (!state.current.pulling || state.current.active) return
-      
-      const dy = e.touches[0].clientY - state.current.startY
-      if (dy > 0) {
-        // Prevent default browser refresh when pulling down
-        if (e.cancelable) e.preventDefault()
-        
-        state.current.currentY = dy
-        const el = getOrCreateIndicator()
-        el.style.opacity = '1'
-        el.style.transition = 'none'
-        
-        // Add elastic resistance
-        const resistDy = dy < 150 ? dy * 0.45 : 67.5 + (dy - 150) * 0.15
-        el.style.transform = `translateY(${resistDy}px)`
-        
-        // Rotate the ring based on pull distance
-        const ring = el.querySelector('._ptr_ring')
-        if (ring && !ring.classList.contains('spin')) {
-          ring.style.transform = `rotate(${dy * 1.5}deg)`
-        }
-      }
+      if (!pulling.current || active.current) return
+      const dy = e.touches[0].clientY - startY.current
+      if (dy > 0) showIndicator(dy)
+      else { pulling.current = false; hideIndicator() }
     }
 
     const onTouchEnd = () => {
-      if (!state.current.pulling || state.current.active) return
-      state.current.pulling = false
-      
-      const dy = state.current.currentY
-      const el = indicator.current
-      
-      if (dy > 120 && el) { 
-        state.current.active = true
-        el.style.transition = 'transform 0.3s cubic-bezier(0.2,0.8,0.2,1)'
-        el.style.transform = 'translateY(80px)'
-        
-        const ring = el.querySelector('._ptr_ring')
-        if (ring) {
-          ring.style.transform = ''
-          ring.classList.add('spin')
+      if (!pulling.current || active.current) return
+      const el = indicatorRef.current
+      if (!el) { pulling.current = false; return }
+
+      const currentY = parseFloat(el.style.transform.match(/translateY\((.+)px\)/)?.[1] || '-80')
+      pulling.current = false
+
+      if (currentY > -40) {
+        active.current = true
+        spinIndicator()
+        try {
+          const result = onRefresh()
+          const wait = new Promise(r => setTimeout(r, 800))
+          Promise.all([
+            result instanceof Promise ? result.catch(() => {}) : Promise.resolve(),
+            wait
+          ]).finally(() => {
+            active.current = false
+            hideIndicator()
+          })
+        } catch {
+          active.current = false
+          hideIndicator()
         }
-        
-        const res = onRefresh()
-        const minWait = new Promise(r => setTimeout(r, 700))
-        Promise.all([res instanceof Promise ? res : Promise.resolve(), minWait]).finally(() => {
-          state.current.active = false
-          removeIndicator()
-        })
       } else {
-        removeIndicator()
+        hideIndicator()
       }
     }
 
     window.addEventListener('touchstart', onTouchStart, { passive: true })
-    window.addEventListener('touchmove', onTouchMove, { passive: false })
-    window.addEventListener('touchend', onTouchEnd)
-    
+    window.addEventListener('touchmove', onTouchMove, { passive: true })
+    window.addEventListener('touchend', onTouchEnd, { passive: true })
+
     return () => {
       window.removeEventListener('touchstart', onTouchStart)
       window.removeEventListener('touchmove', onTouchMove)
       window.removeEventListener('touchend', onTouchEnd)
+      hideIndicator()
     }
   }, [onRefresh, enabled])
 }

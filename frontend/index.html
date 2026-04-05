@@ -6,10 +6,11 @@
 
     <!-- PWA -->
     <link rel="manifest" href="/manifest.json" />
-    <meta name="theme-color" content="#ffffff" />
+    <meta name="theme-color" content="#f2f7f2" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="format-detection" content="telephone=no" />
     <meta name="apple-mobile-web-app-title" content="NNS" />
 
     <!-- Icons -->
@@ -39,6 +40,21 @@
     <title>NNS — Giá cà phê Lâm Đồng</title>
   </head>
   <style>body { margin: 0; }</style>
+  <script>
+    // Chặn iOS Safari pull-to-refresh native
+    var lastY = 0;
+    document.addEventListener('touchstart', function(e) {
+      lastY = e.touches[0].clientY;
+    }, { passive: true });
+    document.addEventListener('touchmove', function(e) {
+      var y = e.touches[0].clientY;
+      var scrollTop = document.scrollingElement ? document.scrollingElement.scrollTop : document.body.scrollTop;
+      if (scrollTop <= 0 && y > lastY) {
+        e.preventDefault();
+      }
+      lastY = y;
+    }, { passive: false });
+  </script>
   <body>
     <div id="root">
       <script>

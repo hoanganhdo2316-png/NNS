@@ -155,23 +155,32 @@ export default function AgentPage() {
   const doAuth = async () => {
     setError(''); setLoading(true)
     try {
-      const body = screen==='register' ? {phone,password,pin} : {phone,password}
-      const r = await fetch(`${API}/agent/${screen==='login'?'login':'register'}`, {
-        method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify(body)
-      })
-      const d = await r.json()
-      if (r.status === 403) { setLocked(true); setLoading(false); return }
-      if (!r.ok) { setError(d.detail||'Lỗi'); setLoading(false); return }
-      if (screen==='register') {
+      if (screen === 'register') {
+        const r = await fetch(`${API}/agent/register`, {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({phone, password})
+        })
+        const d = await r.json()
+        if (r.status === 403) { setLocked(true); setLoading(false); return }
+        if (!r.ok) { setError(d.detail||'Loi'); setLoading(false); return }
         await fetch(`${API}/agent/set-pin`, {
           method:'POST', headers:{'Content-Type':'application/json', Authorization:`Bearer ${d.access_token}`},
           body: JSON.stringify({pin})
         })
+        localStorage.setItem(TOKEN_KEY, d.access_token)
+        setToken(d.access_token)
+      } else {
+        const r = await fetch(`${API}/agent/login`, {
+          method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({phone, password})
+        })
+        const d = await r.json()
+        if (r.status === 403) { setLocked(true); setLoading(false); return }
+        if (!r.ok) { setError(d.detail||'Loi'); setLoading(false); return }
+        localStorage.setItem(TOKEN_KEY, d.access_token)
+        setToken(d.access_token)
       }
-      localStorage.setItem(TOKEN_KEY, d.access_token)
-      setToken(d.access_token)
-    } catch { setError('Không kết nối được server') }
+    } catch { setError('Khong ket noi duoc server') }
     setLoading(false)
   }
 
@@ -351,7 +360,8 @@ hdr: {padding:'calc(env(safe-area-inset-top) + 16px) 18px 10px',display:'flex',a
             value={pin} onChange={e=>setPin(e.target.value.replace(/\D/g,''))} type="password" inputMode="numeric" maxLength={6}/>
           <div style={{fontSize:11,color:'#aaa',marginBottom:10,textAlign:'center'}}>Chỉ SĐT đã đăng ký trong hệ thống NNS mới kích hoạt được</div>
         </>}
-        <button style={s.btn} onClick={doAuth} disabled={loading||!phone||!password||(screen==='register'&&pin.length!==6)}>
+        <button style={s.btn} onClick={doAuth}
+          disabled={loading||!phone||!password||(screen==='register'&&pin.length!==6)}>
           {loading?'Đang xử lý...' : screen==='login'?'🔑 Đăng nhập':'✅ Kích hoạt tài khoản'}
         </button>
       </div>
