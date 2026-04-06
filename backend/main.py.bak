@@ -2,7 +2,7 @@ import os
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 VN_TZ = ZoneInfo('Asia/Ho_Chi_Minh')
-from fastapi import FastAPI, HTTPException, Depends, WebSocket, WebSocketDisconnect, UploadFile, File
+from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel
@@ -14,47 +14,13 @@ from jose import JWTError, jwt
 from pywebpush import webpush, WebPushException
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 import traceback
+import random
 import requests as _requests
 
 # 1. Tải môi trường
 load_dotenv()
 
 app = FastAPI()
-
-# WebSocket connection manager
-class ConnectionManager:
-    def __init__(self):
-        self.active_connections: list[WebSocket] = []
-
-    async def connect(self, websocket: WebSocket):
-        await websocket.accept()
-        self.active_connections.append(websocket)
-
-    def disconnect(self, websocket: WebSocket):
-        if websocket in self.active_connections:
-            self.active_connections.remove(websocket)
-
-    async def broadcast(self, message: dict):
-        import json
-        dead = []
-        for connection in self.active_connections:
-            try:
-                await connection.send_text(json.dumps(message))
-            except Exception:
-                dead.append(connection)
-        for d in dead:
-            self.disconnect(d)
-
-ws_manager = ConnectionManager()
-
-@app.websocket("/ws/prices")
-async def websocket_prices(websocket: WebSocket):
-    await ws_manager.connect(websocket)
-    try:
-        while True:
-            await websocket.receive_text()
-    except WebSocketDisconnect:
-        ws_manager.disconnect(websocket)
 
 @app.on_event("startup")
 async def startup_db_client():
@@ -85,16 +51,35 @@ VAPID_PRIVATE_KEY = "5UTljMfDeBNbWzfJNpsIITHnaA9JyyNibM9Sr53W9lE"
 VAPID_CLAIMS = {"sub": "mailto:admin@nns.id.vn"}
 scheduler = AsyncIOScheduler()
 
-# Zalo OAuth config
-ZALO_APP_ID = "2996379276447803360"
-ZALO_SECRET_KEY = "Q1OvXwKQ7f6F2D1g45RY"
+# eSMS config
+ESMS_API_KEY = "4FBAFA2377D0C8C5DE3100E1DC2223"
+ESMS_SECRET_KEY = "313D5440DEE74551FC561CB364EAAB"
+ESMS_BRAND_NAME = "Bacsic"
+_otp_store: dict = {}
+_agent_otp_store: dict = {}
+
+def _send_otp_esms(phone: str, otp: str) -> bool:
+    p = phone.strip()
+    if p.startswith("0"):
+        p = "84" + p[1:]
+    msg = f"Ma OTP NNS: {otp}. Co hieu luc 5 phut. Khong chia se cho ai."
+    try:
+        resp = _requests.get(
+            "http://rest.esms.vn/MainService.svc/json/SendMultipleMessage_V4_get",
+            params={"ApiKey": ESMS_API_KEY, "SecretKey": ESMS_SECRET_KEY,
+                    "Phone": p, "Content": msg, "SmsType": "8"},
+            timeout=10)
+        data = resp.json()
+        print(f"eSMS: {data}")
+        return str(data.get("CodeResult")) == "100"
+    except Exception as ex:
+        print(f"eSMS error: {ex}")
+        return False
 
 # 5. Auth config
 SECRET_KEY = os.getenv("SECRET_KEY", "agribot-secret-key-2026")
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 365  # 1 năm (user)
-ADMIN_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7   # 7 ngày (admin)
-AGENT_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7   # 7 ngày (agent)
+ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 1 ngày
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="login", auto_error=False)
 
@@ -112,26 +97,16 @@ class AgriData(BaseModel):
     region: str = "Lâm Đồng"
 
 # 7. Helpers
-def create_token(data: dict, expire_minutes: int = None):
-    if expire_minutes is None:
-        expire_minutes = ACCESS_TOKEN_EXPIRE_MINUTES
-    expire = datetime.now(VN_TZ) + timedelta(minutes=expire_minutes)
+def create_token(data: dict):
+    expire = datetime.now(VN_TZ) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     return jwt.encode({**data, "exp": expire}, SECRET_KEY, algorithm=ALGORITHM)
-
-def create_refresh_token(data: dict, expire_days: int = 30):
-    expire = datetime.now(VN_TZ) + timedelta(days=expire_days)
-    return jwt.encode({**data, "exp": expire, "type": "refresh"}, SECRET_KEY, algorithm=ALGORITHM)
 
 async def get_current_user(token: str = Depends(oauth2_scheme)):
     if not token:
         return None
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        zalo_id = payload.get("zalo_id")
-        if zalo_id:
-            user = await users_col.find_one({"zalo_id": zalo_id})
-        else:
-            user = await users_col.find_one({"so_dien_thoai": payload.get("sub")})
+        user = await users_col.find_one({"so_dien_thoai": payload.get("sub")})
         if user and user.get("active") == False:
             raise HTTPException(status_code=403, detail="Tai khoan bi khoa")
         return user
@@ -151,10 +126,25 @@ async def root():
     return {"status": "Online", "service": "AgriBot API"}
 
 # REGISTER
+class SendOtpReq(BaseModel):
+    phone: str
+
+@app.post("/otp/send")
+async def send_otp(req: SendOtpReq):
+    phone = req.phone.strip()
+    if await users_col.find_one({"so_dien_thoai": phone}):
+        raise HTTPException(status_code=400, detail="So dien thoai da dang ky")
+    otp = str(random.randint(100000, 999999))
+    _otp_store[phone] = {"otp": otp, "expires": datetime.now(VN_TZ) + timedelta(minutes=5)}
+    if not _send_otp_esms(phone, otp):
+        raise HTTPException(status_code=500, detail="Gui OTP that bai, thu lai sau")
+    return {"message": "Da gui OTP"}
+
 class RegisterRequest(BaseModel):
     ho_ten: str
     so_dien_thoai: str
     password: str
+    otp: str
     pin: str = ""
     dia_chi: dict = {}
     ngay_sinh: str = ""
@@ -162,6 +152,15 @@ class RegisterRequest(BaseModel):
 @app.post("/register")
 async def register(req: RegisterRequest):
     phone = req.so_dien_thoai.strip()
+    stored = _otp_store.get(phone)
+    if not stored:
+        raise HTTPException(status_code=400, detail="Chua gui OTP hoac OTP da het han")
+    if datetime.now(VN_TZ) > stored["expires"]:
+        _otp_store.pop(phone, None)
+        raise HTTPException(status_code=400, detail="OTP da het han, vui long gui lai")
+    if stored["otp"] != req.otp.strip():
+        raise HTTPException(status_code=400, detail="OTP khong dung")
+    _otp_store.pop(phone, None)
     if await users_col.find_one({"so_dien_thoai": phone}):
         raise HTTPException(status_code=400, detail="So dien thoai da ton tai")
     await users_col.insert_one({
@@ -173,89 +172,6 @@ async def register(req: RegisterRequest):
         "pin_hash": pwd_context.hash(req.pin) if req.pin else ""
     })
     return {"message": "Dang ky thanh cong!"}
-
-# ZALO LOGIN
-class ZaloAuthRequest(BaseModel):
-    code: str
-    code_verifier: str = ""
-
-@app.post("/auth/zalo")
-async def zalo_login(req: ZaloAuthRequest):
-    # Đổi code lấy access_token từ Zalo
-    try:
-        resp = _requests.post(
-            "https://oauth.zaloapp.com/v4/access_token",
-            data={
-                "app_id": ZALO_APP_ID,
-                "code": req.code,
-                "grant_type": "authorization_code",
-                "code_verifier": req.code_verifier
-            },
-            headers={
-                "Content-Type": "application/x-www-form-urlencoded",
-                "secret_key": ZALO_SECRET_KEY
-            },
-            timeout=10
-        )
-        token_data = resp.json()
-    except Exception as ex:
-        raise HTTPException(status_code=500, detail=f"Zalo token error: {ex}")
-
-    access_token = token_data.get("access_token")
-    if not access_token:
-        raise HTTPException(status_code=400, detail=f"Zalo auth failed: {token_data.get('error_description', token_data)}")
-
-    # Lấy thông tin user từ Zalo
-    try:
-        user_resp = _requests.get(
-            "https://zalo-proxy.hoanganhdo2316.workers.dev/zalo-proxy",
-            params={"access_token": access_token},
-            timeout=10
-        )
-        zalo_user = user_resp.json()
-        print(f"Zalo user response: {zalo_user}")
-    except Exception as ex:
-        raise HTTPException(status_code=500, detail=f"Zalo user info error: {ex}")
-
-    zalo_id = zalo_user.get("id")
-    if not zalo_id:
-        print(f"Zalo user data: {zalo_user}")
-        raise HTTPException(status_code=400, detail="Khong lay duoc thong tin Zalo")
-
-    # Tìm hoặc tạo user
-    user = await users_col.find_one({"zalo_id": zalo_id})
-    if not user:
-        avatar = ""
-        try:
-            avatar = zalo_user.get("picture", {}).get("data", {}).get("url", "")
-        except Exception:
-            pass
-        await users_col.insert_one({
-            "ho_ten": zalo_user.get("name", ""),
-            "so_dien_thoai": "",
-            "zalo_id": zalo_id,
-            "avatar": avatar,
-            "password_hash": "",
-            "dia_chi": {}, "ngay_sinh": "",
-            "created_at": datetime.now(VN_TZ),
-            "last_login": datetime.now(VN_TZ),
-            "active": True,
-            "pin_hash": ""
-        })
-        user = await users_col.find_one({"zalo_id": zalo_id})
-
-    if user.get("active") == False:
-        raise HTTPException(status_code=403, detail="Tai khoan bi khoa")
-
-    await users_col.update_one({"zalo_id": zalo_id}, {"$set": {"last_login": datetime.now(VN_TZ)}})
-    token = create_token({"sub": f"zalo_{zalo_id}", "zalo_id": zalo_id})
-    return {
-        "access_token": token,
-        "token_type": "bearer",
-        "ho_ten": user.get("ho_ten", ""),
-        "zalo_id": zalo_id,
-        "avatar": user.get("avatar", "")
-    }
 # LOGIN
 @app.post("/login")
 async def login(form: OAuth2PasswordRequestForm = Depends()):
@@ -439,14 +355,6 @@ async def get_agents(lat: float = None, lng: float = None, limit: int = 50):
     agents = await db["agents"].find({}, {"password_hash": 0, "pin_hash": 0}).to_list(200)
     for a in agents:
         a["_id"] = str(a["_id"])
-        # Tính change từ price_history thực tế
-        history = a.get("price_history", [])
-        if len(history) >= 2:
-            curr_price = history[-1]["price"]
-            prev_price = history[-2]["price"]
-            a["change"] = curr_price - prev_price
-        else:
-            a["change"] = 0
     if lat and lng:
         for a in agents:
             a["distance"] = round(haversine(lat, lng, a["lat"], a["lng"]), 1)
@@ -482,6 +390,7 @@ from pydantic import BaseModel as BM
 
 class AgentLoginRequest(BM):
     phone: str
+    otp: str = ""
     password: str
 
 class AgentPriceUpdate(BM):
@@ -543,8 +452,7 @@ async def send_push_to_agents(message: str):
     from concurrent.futures import ThreadPoolExecutor
     payload = _json.dumps({"title": "NNS Thông báo", "body": message, "url": "/agent"})
     agents_list = await db["agents"].find({"push_subscription": {"$exists": True}, "active": True}).to_list(500)
-    expired_ids = []
-    def do_push(agent_id, sub, name):
+    def do_push(sub, name):
         try:
             webpush(
                 subscription_info=sub,
@@ -554,19 +462,12 @@ async def send_push_to_agents(message: str):
             )
             print(f"Push OK for {name}")
         except WebPushException as e:
-            response = e.response if hasattr(e, 'response') and e.response else None
-            status = response.status_code if response else 0
             print(f"Push failed for {name}: {e}")
-            if status in (404, 410):
-                expired_ids.append(agent_id)
+            print(f"Response body:{e.response.text if hasattr(e, 'response') and e.response else ''}")
     loop = asyncio.get_running_loop()
     with ThreadPoolExecutor() as pool:
-        tasks = [loop.run_in_executor(pool, do_push, a["_id"], a["push_subscription"], a.get("name","")) for a in agents_list]
+        tasks = [loop.run_in_executor(pool, do_push, a["push_subscription"], a.get("name","")) for a in agents_list]
         await asyncio.gather(*tasks)
-    # Xóa subscription hết hạn
-    for agent_id in expired_ids:
-        await db["agents"].update_one({"_id": agent_id}, {"$unset": {"push_subscription": ""}})
-        print(f"Removed expired subscription for agent {agent_id}")
 
 @app.post("/agent/login")
 async def agent_login(req: AgentLoginRequest):
@@ -580,6 +481,20 @@ async def agent_login(req: AgentLoginRequest):
     token = create_token({"sub": req.phone, "type": "agent"})
     return {"access_token": token, "token_type": "bearer", "name": agent["name"]}
 
+@app.post("/agent/otp/send")
+async def agent_send_otp(req: SendOtpReq):
+    phone = req.phone.strip()
+    agent = await db["agents"].find_one({"phone": phone})
+    if not agent:
+        raise HTTPException(status_code=404, detail="SDT chua dang ky trong he thong")
+    if agent.get("password_hash"):
+        raise HTTPException(status_code=400, detail="Tai khoan da duoc kich hoat")
+    otp = str(random.randint(100000, 999999))
+    _agent_otp_store[phone] = {"otp": otp, "expires": datetime.now(VN_TZ) + timedelta(minutes=5)}
+    if not _send_otp_esms(phone, otp):
+        raise HTTPException(status_code=500, detail="Gui OTP that bai, thu lai sau")
+    return {"message": "Da gui OTP"}
+
 @app.post("/agent/register")
 async def agent_register(req: AgentLoginRequest):
     phone = req.phone.strip()
@@ -588,6 +503,15 @@ async def agent_register(req: AgentLoginRequest):
         raise HTTPException(status_code=404, detail="SDT chua dang ky trong he thong")
     if agent.get("password_hash"):
         raise HTTPException(status_code=400, detail="Tai khoan da duoc kich hoat")
+    stored = _agent_otp_store.get(phone)
+    if not stored:
+        raise HTTPException(status_code=400, detail="Chua gui OTP hoac OTP da het han")
+    if datetime.now(VN_TZ) > stored["expires"]:
+        _agent_otp_store.pop(phone, None)
+        raise HTTPException(status_code=400, detail="OTP da het han, vui long gui lai")
+    if stored["otp"] != req.otp.strip():
+        raise HTTPException(status_code=400, detail="OTP khong dung")
+    _agent_otp_store.pop(phone, None)
     hashed = pwd_context.hash(req.password)
     await db["agents"].update_one({"phone": phone}, {"$set": {"password_hash": hashed}})
     token = create_token({"sub": phone, "type": "agent"})
@@ -617,14 +541,6 @@ async def agent_update_price(req: AgentPriceUpdate, agent=Depends(get_current_ag
         "lat": req.lat,
         "lng": req.lng,
         "at": now
-    })
-    # Broadcast giá mới đến tất cả client WebSocket
-    await ws_manager.broadcast({
-        "type": "price_update",
-        "agent_id": str(agent["_id"]),
-        "agent_name": agent.get("name", ""),
-        "price": req.price,
-        "updated_at": now.strftime("%H:%M %d/%m/%Y")
     })
     return {"ok": True}
 
@@ -719,8 +635,6 @@ class AddAgentRequest(BM):
 class AdUpdateRequest(BM):
     banner_title: str = ""
     banner_body: str = ""
-    banner_image_url: str = ""
-    banner_enabled: bool = True
     popup_title: str = ""
     popup_body: str = ""
     popup_enabled: bool = False
@@ -741,9 +655,8 @@ async def admin_login(req: AdminLoginRequest):
     hashed = hashlib.sha256(req.password.encode()).hexdigest()
     if hashed != ADMIN_PASSWORD_HASH:
         raise HTTPException(status_code=401, detail="Mat khau khong dung")
-    token = create_token({"sub": "admin", "type": "admin"}, expire_minutes=ADMIN_TOKEN_EXPIRE_MINUTES)
-    refresh = create_refresh_token({"sub": "admin", "type": "admin"})
-    return {"access_token": token, "refresh_token": refresh, "token_type": "bearer"}
+    token = create_token({"sub": "admin", "type": "admin"})
+    return {"access_token": token, "token_type": "bearer"}
 
 class ScheduleNotificationReq(BaseModel):
     message: str
@@ -866,18 +779,6 @@ async def admin_get_ads(admin=Depends(verify_admin)):
 async def admin_update_ads(req: AdUpdateRequest, admin=Depends(verify_admin)):
     await db["ads"].update_one({"_id": "main"}, {"$set": req.dict()}, upsert=True)
     return {"ok": True}
-
-@app.post("/admin/ads/upload-banner")
-async def admin_upload_banner(file: UploadFile = File(...), admin=Depends(verify_admin)):
-    import uuid, shutil
-    ext = file.filename.split('.')[-1].lower()
-    if ext not in ['jpg','jpeg','png','webp','gif']:
-        raise HTTPException(status_code=400, detail="Chỉ hỗ trợ jpg, png, webp, gif")
-    filename = f"banner_{uuid.uuid4().hex[:8]}.{ext}"
-    path = f"/root/NNS/uploads/{filename}"
-    with open(path, "wb") as f:
-        shutil.copyfileobj(file.file, f)
-    return {"url": f"https://nns.id.vn/uploads/{filename}"}
 
 @app.get("/admin/traffic")
 async def admin_get_traffic(admin=Depends(verify_admin)):
@@ -1006,11 +907,6 @@ async def admin_add_catalog(product: CatalogProduct, admin=Depends(verify_admin)
 @app.delete("/admin/catalog/{product_id}")
 async def admin_delete_catalog(product_id: str, admin=Depends(verify_admin)):
     await db["catalog"].delete_one({"id": product_id})
-    # Xóa luôn sản phẩm này khỏi tất cả trang đại lý
-    await db["agents"].update_many(
-        {},
-        {"$pull": {"products": {"id": product_id}}}
-    )
     return {"ok": True}
 
 @app.post("/agent/catalog/{product_id}/add")
@@ -1037,6 +933,7 @@ async def agent_remove_catalog_product(product_id: str, agent=Depends(get_curren
     return {"ok": True}
 
 # ── UPLOAD ẢNH SẢN PHẨM (Admin) ──────────────────────────
+from fastapi import UploadFile, File
 import base64, uuid
 
 @app.post("/admin/catalog/upload-image")
@@ -1048,159 +945,8 @@ async def admin_upload_catalog_image(file: UploadFile = File(...), admin=Depends
     if len(data) > 5 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="File quá lớn (tối đa 5MB)")
     filename = f"{uuid.uuid4().hex}.{ext}"
-    upload_dir = "/root/NNS/uploads"
+    upload_dir = "/root/NNS/frontend/dist/uploads"
     os.makedirs(upload_dir, exist_ok=True)
     with open(f"{upload_dir}/{filename}", "wb") as f:
         f.write(data)
     return {"url": f"https://nns.id.vn/uploads/{filename}"}
-
-# -- FIREBASE OTP --
-import firebase_admin
-from firebase_admin import credentials as fb_credentials, auth as fb_auth
-
-_fb_cred = fb_credentials.Certificate("/root/NNS/backend/firebase-adminsdk.json")
-firebase_admin.initialize_app(_fb_cred)
-
-@app.post("/otp/verify")
-async def verify_otp(req: dict):
-    id_token = req.get("id_token", "").strip()
-    if not id_token:
-        raise HTTPException(status_code=400, detail="Thieu id_token")
-
-    try:
-        decoded = fb_auth.verify_id_token(id_token)
-        phone = decoded.get("phone_number", "")
-        if not phone:
-            raise HTTPException(status_code=400, detail="Khong lay duoc so dien thoai")
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Token khong hop le: {str(e)}")
-
-    # Chuẩn hóa về 0xxxxxxxxx
-    if phone.startswith("+84"):
-        phone_local = "0" + phone[3:]
-    elif phone.startswith("84"):
-        phone_local = "0" + phone[2:]
-    else:
-        phone_local = phone
-
-    user = await users_col.find_one({"so_dien_thoai": {"$in": [phone_local, phone, "+" + phone_local[1:]]}})
-    if not user:
-        await users_col.insert_one({
-            "ho_ten": "",
-            "so_dien_thoai": phone_local,
-            "password_hash": "",
-            "active": True,
-            "created_at": datetime.now(VN_TZ),
-            "last_login": datetime.now(VN_TZ),
-        })
-        user = await users_col.find_one({"so_dien_thoai": phone_local})
-    else:
-        await users_col.update_one({"_id": user["_id"]}, {"$set": {"last_login": datetime.now(VN_TZ)}})
-
-    token = create_token({"sub": phone_local})
-    return {
-        "ok": True,
-        "access_token": token,
-        "ho_ten": user.get("ho_ten", ""),
-        "is_new": not user.get("ho_ten")
-    }
-
-
-# ── ZALO LOGIN V2 (frontend gọi Zalo Graph API) ──────────
-@app.post("/auth/zalo/token")
-async def zalo_get_token(req: ZaloAuthRequest):
-    try:
-        resp = _requests.post(
-            "https://oauth.zaloapp.com/v4/access_token",
-            data={
-                "app_id": ZALO_APP_ID,
-                "code": req.code,
-                "grant_type": "authorization_code",
-                "code_verifier": req.code_verifier
-            },
-            headers={
-                "Content-Type": "application/x-www-form-urlencoded",
-                "secret_key": ZALO_SECRET_KEY
-            },
-            timeout=10
-        )
-        token_data = resp.json()
-    except Exception as ex:
-        raise HTTPException(status_code=500, detail=f"Zalo token error: {ex}")
-
-    access_token = token_data.get("access_token")
-    if not access_token:
-        raise HTTPException(status_code=400, detail=f"Zalo auth failed: {token_data.get('error_description', token_data)}")
-    return {"access_token": access_token}
-
-class ZaloUserInfo(BaseModel):
-    zalo_id: str
-    name: str
-    picture: str = ""
-
-@app.post("/auth/zalo/login")
-async def zalo_create_session(req: ZaloUserInfo):
-    user = await users_col.find_one({"zalo_id": req.zalo_id})
-    if not user:
-        await users_col.insert_one({
-            "ho_ten": req.name,
-            "so_dien_thoai": "",
-            "zalo_id": req.zalo_id,
-            "avatar": req.picture,
-            "password_hash": "",
-            "active": True,
-            "created_at": datetime.now(VN_TZ),
-            "last_login": datetime.now(VN_TZ),
-        })
-        user = await users_col.find_one({"zalo_id": req.zalo_id})
-    else:
-        await users_col.update_one({"zalo_id": req.zalo_id}, {"$set": {"last_login": datetime.now(VN_TZ)}})
-    token = create_token({"sub": user.get("so_dien_thoai") or req.zalo_id})
-    return {"access_token": token, "ho_ten": user.get("ho_ten") or req.name}
-
-# ── REFRESH TOKEN ──────────────────────────────────────
-@app.post("/auth/refresh")
-async def refresh_token(req: dict):
-    token = req.get("refresh_token", "")
-    if not token:
-        raise HTTPException(status_code=401, detail="Missing refresh token")
-    try:
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        if payload.get("type") != "refresh":
-            raise HTTPException(status_code=401, detail="Invalid token type")
-        sub = payload.get("sub")
-        token_type = payload.get("type_user", "user")
-
-        # Xác định loại user và expire
-        if sub == "admin":
-            new_token = create_token({"sub": "admin", "type": "admin"}, expire_minutes=ADMIN_TOKEN_EXPIRE_MINUTES)
-            new_refresh = create_refresh_token({"sub": "admin", "type": "admin"})
-        else:
-            agent = await db["agents"].find_one({"phone": sub})
-            if agent:
-                new_token = create_token({"sub": sub, "type": "agent"}, expire_minutes=AGENT_TOKEN_EXPIRE_MINUTES)
-                new_refresh = create_refresh_token({"sub": sub, "type": "agent"})
-            else:
-                new_token = create_token({"sub": sub}, expire_minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-                new_refresh = create_refresh_token({"sub": sub})
-        return {"access_token": new_token, "refresh_token": new_refresh}
-    except JWTError:
-        raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
-
-# -- USER UPDATE PROFILE (sau OTP verify) --
-@app.put("/user/update-profile")
-async def update_profile(req: dict, current_user=Depends(get_current_user)):
-    phone = current_user.get("sub") or current_user.get("so_dien_thoai")
-    update_data = {}
-    if req.get("ho_ten"):
-        update_data["ho_ten"] = req["ho_ten"]
-    if req.get("password"):
-        update_data["password_hash"] = pwd_context.hash(req["password"])
-    if req.get("dia_chi"):
-        update_data["dia_chi"] = req["dia_chi"]
-    if update_data:
-        await users_col.update_one(
-            {"so_dien_thoai": {"$in": [phone, "0" + phone[2:] if phone.startswith("84") else phone]}},
-            {"$set": update_data}
-        )
-    return {"ok": True}
