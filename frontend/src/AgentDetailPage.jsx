@@ -194,7 +194,7 @@ export default function AgentDetailPage() {
             <div style={{display:'flex',flexDirection:'column',gap:10}}>
               {agent.price_history && agent.price_history.length > 0 && (
                 <div style={{display:'flex',flexDirection:'column',gap:10}}>
-                  <div style={{background:'#fff',borderRadius:14,border:'1.5px solid var(--bdr)',padding:'12px 8px 4px'}}>
+                  <div style={{background:'#fff',borderRadius:14,border:'1.5px solid var(--bdr)',padding:'12px 8px 8px'}}>
                     <div style={{fontSize:11,color:'var(--txt3)',marginBottom:6,paddingLeft:8}}>Biến động giá 30 lần gần nhất</div>
                     <ResponsiveContainer width="100%" height={130}>
                       <LineChart data={[...agent.price_history].map(h => ({
@@ -208,31 +208,31 @@ export default function AgentDetailPage() {
                         <Line type="monotone" dataKey="price" stroke="#2e7d32" strokeWidth={2} dot={false} activeDot={{r:4}}/>
                       </LineChart>
                     </ResponsiveContainer>
-                  </div>
-                  <div style={{background:'#fff',borderRadius:14,border:'1.5px solid var(--bdr)',overflow:'hidden',padding:'6px 12px'}}>
-                    {[...agent.price_history].reverse().slice(0,3).map((h,i) => {
-                      const idx = agent.price_history.length - 1 - i
-                      const prev = agent.price_history[idx-1]
-                      const change = prev ? h.price - prev.price : 0
-                      return (
-                        <div key={i} style={{display:'flex',alignItems:'center',gap:8,padding:'5px 0',
-                          borderBottom:i<2?'1px solid var(--bdr)':'none'}}>
-                          <span style={{fontSize:11,fontWeight:700,fontFamily:'JetBrains Mono,monospace',
-                            color:i===0?'var(--green)':'var(--txt)',whiteSpace:'nowrap'}}>
-                            {fmt(h.price)}đ
-                          </span>
-                          {change!==0 && <ChangeTag val={change}/>}
-                          <span style={{fontSize:10,color:'var(--txt3)',marginLeft:'auto',whiteSpace:'nowrap',fontFamily:'monospace'}}>
-                            {toVN(h.at)}
-                          </span>
-                        </div>
-                      )
-                    })}
-                    {agent.price_history.length > 3 && (
-                      <button onClick={()=>setTab('history')} style={{width:'100%',padding:'6px 0',border:'none',background:'none',color:'var(--green)',fontWeight:700,fontSize:12,cursor:'pointer',fontFamily:'inherit',textAlign:'left'}}>
-                        Xem thêm {agent.price_history.length-3} lần →
-                      </button>
-                    )}
+                    <div style={{borderTop:'1px solid var(--bdr)',marginTop:4,paddingTop:6,paddingLeft:4,paddingRight:4}}>
+                      {[...agent.price_history].reverse().slice(0,3).map((h,i) => {
+                        const idx = agent.price_history.length - 1 - i
+                        const prev = agent.price_history[idx-1]
+                        const change = prev ? h.price - prev.price : 0
+                        return (
+                          <div key={i} style={{display:'flex',alignItems:'center',gap:8,padding:'4px 0',
+                            borderBottom:i<2?'1px solid var(--bdr)':'none'}}>
+                            <span style={{fontSize:11,fontWeight:700,fontFamily:'JetBrains Mono,monospace',
+                              color:i===0?'var(--green)':'var(--txt)',whiteSpace:'nowrap'}}>
+                              {fmt(h.price)}đ
+                            </span>
+                            {change!==0 && <ChangeTag val={change}/>}
+                            <span style={{fontSize:10,color:'var(--txt3)',marginLeft:'auto',whiteSpace:'nowrap',fontFamily:'monospace'}}>
+                              {toVN(h.at)}
+                            </span>
+                          </div>
+                        )
+                      })}
+                      {agent.price_history.length > 3 && (
+                        <button onClick={()=>setTab('history')} style={{width:'100%',padding:'5px 0',border:'none',background:'none',color:'var(--green)',fontWeight:700,fontSize:12,cursor:'pointer',fontFamily:'inherit',textAlign:'left'}}>
+                          Xem thêm {agent.price_history.length-3} lần →
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
               )}
@@ -263,34 +263,45 @@ export default function AgentDetailPage() {
               </div>
 
               {agent.phone && (
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+                <div style={{display:"flex",gap:8}}>
                   <a href={`tel:${agent.phone}`}
-                    style={{display:'flex',alignItems:'center',justifyContent:'center',gap:8,
-                      padding:'14px 8px',borderRadius:12,background:'var(--green)',color:'#fff',
-                      fontWeight:700,fontSize:14,textDecoration:'none',boxShadow:'0 3px 10px rgba(46,125,50,.3)'}}>
+                    style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:6,
+                      padding:"10px 6px",borderRadius:10,background:"var(--green)",color:"#fff",
+                      fontWeight:700,fontSize:12,textDecoration:"none"}}>
                     📞 Gọi ngay
                   </a>
                   <a href={`https://zalo.me/${agent.zalo || agent.phone}`}
-                    style={{display:'flex',alignItems:'center',justifyContent:'center',gap:8,
-                      padding:'14px 8px',borderRadius:12,background:'var(--blue2)',color:'var(--blue)',
-                      fontWeight:700,fontSize:14,textDecoration:'none',border:'1.5px solid #90caf9'}}>
-                    💬 Nhắn Zalo
+                    style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:6,
+                      padding:"10px 6px",borderRadius:10,background:"var(--blue2)",color:"var(--blue)",
+                      fontWeight:700,fontSize:12,textDecoration:"none",border:"1.5px solid #90caf9"}}>
+                    💬 Zalo
                   </a>
+                  {agent.lat && agent.lng && (
+                    <a href={`https://www.google.com/maps/search/?api=1&query=${agent.lat},${agent.lng}`}
+                      target="_blank" rel="noreferrer"
+                      style={{flex:1,display:"flex",alignItems:"center",justifyContent:"center",gap:6,
+                        padding:"10px 6px",borderRadius:10,background:"#fff",color:"var(--txt)",
+                        fontWeight:700,fontSize:12,textDecoration:"none",border:"1.5px solid var(--bdr)"}}>
+                      🗺 Bản đồ
+                    </a>
+                  )}
                 </div>
               )}
-
-              {agent.lat && agent.lng && (
-                <a href={`https://www.google.com/maps/search/?api=1&query=${agent.lat},${agent.lng}`}
-                  target="_blank" rel="noreferrer"
-                  style={{display:'flex',alignItems:'center',gap:12,padding:'14px 16px',
-                    borderRadius:12,background:'#fff',border:'1.5px solid var(--bdr)',textDecoration:'none',color:'var(--txt)'}}>
-                  <span style={{fontSize:22}}>🗺</span>
-                  <div style={{flex:1}}>
-                    <div style={{fontWeight:600,fontSize:14,color:'var(--txt)'}}>Xem trên bản đồ</div>
-                    <div style={{fontSize:11,color:'var(--txt3)',marginTop:2}}>{agent.loc || 'Lâm Đồng'}</div>
+              {agent.price_table && agent.price_table.length > 0 && (
+                <div style={{background:'#fff',borderRadius:14,border:'1.5px solid var(--bdr)',overflow:'hidden'}}>
+                  <div style={{padding:'12px 16px 8px',borderBottom:'1px solid var(--bdr)'}}>
+                    <div style={{fontWeight:700,fontSize:13,color:'var(--green)'}}>📋 Bảng giá</div>
                   </div>
-                  <span style={{color:'var(--txt3)',fontSize:16}}>›</span>
-                </a>
+                  {agent.price_table.map((item, i) => (
+                    <div key={i} style={{display:'flex',justifyContent:'space-between',alignItems:'center',
+                      padding:'10px 16px',borderBottom:i<agent.price_table.length-1?'1px solid var(--bdr)':'none'}}>
+                      <div style={{fontSize:13,fontWeight:600,color:'var(--txt)'}}>{item.name}</div>
+                      <div style={{fontSize:14,fontWeight:800,fontFamily:'JetBrains Mono,monospace',color:'var(--green)'}}>
+                        {item.price > 0 ? fmt(item.price)+'đ/kg' : '—'}
+                      </div>
+                    </div>
+                  ))}
+                </div>
               )}
             </div>
           )}
