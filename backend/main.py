@@ -385,6 +385,12 @@ async def get_agent_detail(agent_id: str):
             raise HTTPException(status_code=404, detail="Khong tim thay dai ly")
         agent["_id"] = str(agent["_id"])
         await db["agents"].update_one({"_id": ObjectId(agent_id)}, {"$inc": {"views": 1}})
+        # Tính change thực từ price_history
+        history = agent.get("price_history", [])
+        if len(history) >= 2:
+            agent["change"] = history[-1]["price"] - history[-2]["price"]
+        elif len(history) == 1:
+            agent["change"] = 0
         return agent
     except:
         raise HTTPException(status_code=400, detail="ID khong hop le")
@@ -540,6 +546,18 @@ async def agent_update_price(req: AgentPriceUpdate, agent=Depends(get_current_ag
         "price": req.price,
         "updated_at": now.strftime("%H:%M %d/%m/%Y")
     })
+    return {"ok": True}
+
+
+class PriceTableUpdate(BM):
+    items: list = []
+
+@app.put("/agent/price-table")
+async def agent_update_price_table(req: PriceTableUpdate, agent=Depends(get_current_agent)):
+    await db["agents"].update_one(
+        {"_id": ObjectId(agent["_id"])},
+        {"$set": {"price_table": req.items}}
+    )
     return {"ok": True}
 
 @app.put("/agent/profile")

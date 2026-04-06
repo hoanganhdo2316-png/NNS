@@ -158,22 +158,21 @@ export default function AgentDetailPage() {
               </div>
             </div>
             {latestPrice && (
-              <div style={{marginTop:10,fontSize:11,color:'rgba(255,255,255,.45)'}}>
-                Cập nhật: {toVN(latestPrice.at)}
-                {latestPrice.note ? ` · ${latestPrice.note}` : ''}
+              <div style={{marginTop:10,display:"flex",alignItems:"center",justifyContent:"space-between",gap:8}}>
+                <div style={{fontSize:11,color:"rgba(255,255,255,.45)"}}>
+                  Cập nhật: {toVN(latestPrice.at)}
+                  {latestPrice.note ? ` · ${latestPrice.note}` : ""}
+                </div>
+                <button onClick={doFollow} disabled={followLoading}
+                  style={{padding:"6px 14px",borderRadius:8,border:"none",cursor:"pointer",fontWeight:700,fontSize:12,
+                    background: following ? "rgba(255,255,255,.2)" : "rgba(255,255,255,.9)",
+                    color: following ? "#fff" : "var(--green)",
+                    opacity: followLoading ? .6 : 1, transition:"all .2s", whiteSpace:"nowrap", flexShrink:0}}>
+                  {followLoading ? "..." : following ? "✅ Theo dõi" : "+ Theo dõi"}
+                </button>
               </div>
             )}
           </div>
-        </div>
-
-        <div style={{margin:'0 12px',background:'#fff',border:'1px solid var(--bdr)',borderTop:'none',padding:'10px 12px',display:'flex',justifyContent:'flex-end'}}>
-          <button onClick={doFollow} disabled={followLoading}
-            style={{padding:'9px 20px',borderRadius:10,border:'none',cursor:'pointer',fontWeight:700,fontSize:13,
-              background: following ? '#e8f5e9' : 'var(--green)',
-              color: following ? 'var(--green)' : '#fff',
-              opacity: followLoading ? .6 : 1, transition:'all .2s'}}>
-            {followLoading ? '...' : following ? '✅ Đang theo dõi' : '+ Theo dõi'}
-          </button>
         </div>
         <div style={{margin:'0 12px',background:'#fff',borderRadius:'0 0 0 0',borderBottom:'1.5px solid var(--bdr)',display:'flex',border:'1px solid var(--bdr)',borderTop:'none'}}>
           {TABS.map(t => (
@@ -210,32 +209,28 @@ export default function AgentDetailPage() {
                       </LineChart>
                     </ResponsiveContainer>
                   </div>
-                  <div style={{background:'#fff',borderRadius:14,border:'1.5px solid var(--bdr)',overflow:'hidden'}}>
+                  <div style={{background:'#fff',borderRadius:14,border:'1.5px solid var(--bdr)',overflow:'hidden',padding:'6px 12px'}}>
                     {[...agent.price_history].reverse().slice(0,3).map((h,i) => {
                       const idx = agent.price_history.length - 1 - i
                       const prev = agent.price_history[idx-1]
                       const change = prev ? h.price - prev.price : 0
                       return (
-                        <div key={i} style={{display:'flex',alignItems:'center',gap:12,padding:'12px 16px',
-                          borderBottom:i<2?'1px solid var(--bdr)':'none',
-                          background:i===0?'var(--green3)':'#fff'}}>
-                          <div style={{flex:1}}>
-                            <div style={{fontSize:14,fontWeight:700,fontFamily:'JetBrains Mono,monospace',color:i===0?'var(--green)':'var(--txt)'}}>
-                              {fmt(h.price)}đ/kg
-                              {i===0 && <span style={{fontSize:10,marginLeft:6,color:'var(--green2)'}}>MỚI NHẤT</span>}
-                            </div>
-                            {h.note && <div style={{fontSize:11,color:'var(--txt3)',marginTop:2}}>{h.note}</div>}
-                          </div>
-                          <div style={{textAlign:'right'}}>
-                            {change!==0 && <div style={{marginBottom:3}}><ChangeTag val={change}/></div>}
-                            <div style={{fontSize:10,color:'var(--txt3)',fontFamily:'monospace'}}>{toVN(h.at)}</div>
-                          </div>
+                        <div key={i} style={{display:'flex',alignItems:'center',gap:8,padding:'5px 0',
+                          borderBottom:i<2?'1px solid var(--bdr)':'none'}}>
+                          <span style={{fontSize:11,fontWeight:700,fontFamily:'JetBrains Mono,monospace',
+                            color:i===0?'var(--green)':'var(--txt)',whiteSpace:'nowrap'}}>
+                            {fmt(h.price)}đ
+                          </span>
+                          {change!==0 && <ChangeTag val={change}/>}
+                          <span style={{fontSize:10,color:'var(--txt3)',marginLeft:'auto',whiteSpace:'nowrap',fontFamily:'monospace'}}>
+                            {toVN(h.at)}
+                          </span>
                         </div>
                       )
                     })}
                     {agent.price_history.length > 3 && (
-                      <button onClick={()=>setTab('history')} style={{width:'100%',padding:'12px',border:'none',background:'var(--bg2)',color:'var(--green)',fontWeight:700,fontSize:13,cursor:'pointer',fontFamily:'inherit'}}>
-                        Xem thêm {agent.price_history.length-3} lần cập nhật →
+                      <button onClick={()=>setTab('history')} style={{width:'100%',padding:'6px 0',border:'none',background:'none',color:'var(--green)',fontWeight:700,fontSize:12,cursor:'pointer',fontFamily:'inherit',textAlign:'left'}}>
+                        Xem thêm {agent.price_history.length-3} lần →
                       </button>
                     )}
                   </div>

@@ -1,5 +1,6 @@
 const toVN = s => s ? new Date((s+'').endsWith('Z')||(s+'').includes('+') ? s : s+'Z').toLocaleString('vi-VN') : '';
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 import Spinner from './Spinner'
 import useSwipeBack from './useSwipeBack'
 import usePullToRefresh from './usePullToRefresh'
@@ -92,6 +93,8 @@ export default function AgentPage() {
   const [pinAction, setPinAction] = useState(null)
   const [catalog, setCatalog] = useState([])
   const [catalogLoading, setCatalogLoading] = useState(false)
+  const [priceTable, setPriceTable] = useState([])
+  const [allAgents, setAllAgents] = useState([])
   const [pushStatus, setPushStatus] = useState(typeof Notification !== 'undefined' ? Notification.permission : 'denied')
 
   const subscribePush = async (jwtToken) => {
@@ -143,9 +146,39 @@ export default function AgentPage() {
       const d = await r.json()
       setAgent(d)
       setProfileForm({name:d.name||'',address:d.address||'',phone:d.phone||'',phone2:d.phone2||'',zalo:d.zalo||'',email:d.email||'',facebook:d.facebook||''})
+      setPriceTable(d.price_table||[])
       setScreen(prev => (prev === 'login' || prev === 'register') ? 'home' : prev)
     } catch { logout() }
   }
+
+  const fetchAllAgents = async () => {
+    try {
+      const r = await fetch(`${API}/agents`)
+      if (r.ok) setAllAgents(await r.json())
+    } catch {}
+  }
+
+  useEffect(() => { fetchAllAgents() }, [])
+
+  const validAgents = useMemo(() => allAgents.filter(a => a.price > 0), [allAgents])
+  const avgPrice = useMemo(() => validAgents.length > 0 ? Math.round(validAgents.reduce((s,a) => s+(a.price||0), 0) / validAgents.length) : 0, [validAgents])
+  const domesticHistory = useMemo(() => {
+    const agentsWithHist = validAgents.filter(a => a.price_history && a.price_history.length > 0)
+    if (agentsWithHist.length === 0) return []
+    const byDate = {}
+    agentsWithHist.forEach(a => {
+      a.price_history.forEach(h => {
+        const date = new Date((h.at+'').endsWith('Z')||(h.at+'').includes('+') ? h.at : h.at+'Z')
+        const key = date.toLocaleDateString('vi-VN', {day:'2-digit', month:'2-digit'})
+        if (!byDate[key]) byDate[key] = []
+        byDate[key].push(h.price)
+      })
+    })
+    return Object.entries(byDate).map(([time, prices]) => ({
+      time,
+      price: Math.round(prices.reduce((s,p)=>s+p,0) / prices.length)
+    })).slice(-30)
+  }, [validAgents])
 
   const logout = () => {
     localStorage.removeItem(TOKEN_KEY)
@@ -206,6 +239,14 @@ export default function AgentPage() {
       setImageFile(file)
       setImagePreview(URL.createObjectURL(file))
     }
+  }
+
+  const savePriceTable = async (items) => {
+    const r = await fetch(`${API}/agent/price-table`, {
+      method:'PUT', headers:{'Content-Type':'application/json', Authorization:`Bearer ${token}`},
+      body: JSON.stringify({items})
+    })
+    if (r.ok) setSaved('✅ Đã lưu bảng giá!')
   }
 
   const doUpdatePrice = async () => {
@@ -429,6 +470,47 @@ hdr: {padding:'calc(env(safe-area-inset-top) + 16px) 18px 10px',display:'flex',a
             )}
           </div>
 
+
+          {/* BLOCK GIÁ TRUNG BÌNH TRONG NƯỚC */}
+          {avgPrice > 0 && (() => {
+            const first = domesticHistory[0]?.price || avgPrice
+            const last  = domesticHistory[domesticHistory.length - 1]?.price || avgPrice
+            const trend = last > first ? '#a5d6a7' : last < first ? '#ef9a9a' : '#fff9c4'
+            return (
+            <div style={{background:'rgba(0,0,0,.25)',borderRadius:18,padding:'16px 18px',marginBottom:12,border:'1px solid rgba(255,255,255,.1)'}}>
+              <div style={{fontSize:11,color:'rgba(255,255,255,.7)',marginBottom:10,fontWeight:600,letterSpacing:.5}}>GIÁ TRUNG BÌNH TRONG NƯỚC</div>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
+                <div>
+                  <div style={{fontSize:28,fontWeight:800,color:'#fff',fontFamily:'monospace',letterSpacing:'-1px',lineHeight:1}}>
+                    {avgPrice.toLocaleString('vi-VN')}
+                    <span style={{fontSize:12,fontWeight:400,color:'rgba(255,255,255,.6)',marginLeft:4}}>đ/kg</span>
+                  </div>
+                  <div style={{fontSize:11,color:'rgba(255,255,255,.5)',marginTop:4}}>{validAgents.length} đại lý · Trung bình</div>
+                </div>
+                <div style={{textAlign:'right'}}>
+                  <div style={{fontSize:11,color:'rgba(255,255,255,.5)'}}>Xu hướng 30 ngày</div>
+                  <div style={{fontSize:14,fontWeight:700,color:trend,marginTop:4}}>
+                    {last > first ? '▲ Tăng' : last < first ? '▼ Giảm' : '= Ổn định'}
+                  </div>
+                </div>
+              </div>
+              {domesticHistory.length > 1 && (
+                <div style={{marginTop:8,background:'rgba(0,0,0,.2)',borderRadius:10,padding:'8px 6px 4px'}}>
+                  <div style={{fontSize:10,color:'rgba(255,255,255,.4)',marginBottom:4,paddingLeft:2}}>Lịch sử 30 ngày</div>
+                  <ResponsiveContainer width="100%" height={70}>
+                    <LineChart data={domesticHistory}>
+                      <XAxis dataKey="time" tick={{fontSize:8,fill:'rgba(255,255,255,.4)'}} interval="preserveStartEnd" tickLine={false} axisLine={false}/>
+                      <YAxis domain={['auto','auto']} tick={{fontSize:8,fill:'rgba(255,255,255,.4)'}} tickFormatter={v=>v/1000+'k'} tickLine={false} axisLine={false} width={28}/>
+                      <Tooltip formatter={(v)=>[`${v.toLocaleString('vi-VN')}đ/kg`,'TB']} contentStyle={{fontSize:10,borderRadius:6,background:'#0d2a5e',border:'none',color:'#fff'}}/>
+                      <Line type="monotone" dataKey="price" stroke={trend} strokeWidth={2} dot={false} activeDot={{r:3}}/>
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+            </div>
+            )
+          })()}
+
           {/* TILES GRID 2 cột */}
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
             {tiles.map(t=>(
@@ -460,20 +542,58 @@ hdr: {padding:'calc(env(safe-area-inset-top) + 16px) 18px 10px',display:'flex',a
 
           {/* QUẢN LÝ GIÁ */}
           {screen==='price' && (
-            <div style={{...s.card,margin:'0 12px 12px'}}>
-              <div style={{background:'#e3f2fd',borderRadius:10,padding:'10px 14px',marginBottom:14,fontSize:13,color:'#0d47a1'}}>
-                Giá hiện tại: <b>{agent.price>0?fmt(agent.price)+'đ':'Chưa cập nhật'}</b>
+            <div>
+              {/* BLOCK 1: CẬP NHẬT GIÁ CHÍNH */}
+              <div style={{...s.card,margin:'0 12px 12px'}}>
+                <div style={{fontWeight:700,fontSize:14,color:'#1565c0',marginBottom:12}}>💰 Giá mua chính</div>
+                <div style={{background:'#e3f2fd',borderRadius:10,padding:'10px 14px',marginBottom:14,fontSize:13,color:'#0d47a1'}}>
+                  Giá hiện tại: <b>{agent.price>0?fmt(agent.price)+'đ':'Chưa cập nhật'}</b>
+                </div>
+                <div style={{fontSize:12,color:'#888',marginBottom:4}}>Giá mới (đ/kg)</div>
+                <input style={s.inp} placeholder="VD: 125000" value={price} onChange={e=>setPrice(e.target.value)} type="number" inputMode="numeric"/>
+                <div style={{background:'#fff8e1',borderRadius:10,padding:'10px 14px',marginBottom:14,fontSize:12,color:'#e65100',display:'flex',gap:8}}>
+                  <span>🔐</span><span>Cần xác nhận PIN để cập nhật giá</span>
+                </div>
+                <button style={s.btn} onClick={()=>requirePin(doUpdatePrice)} disabled={!price||loading}>
+                  💰 Cập nhật giá (yêu cầu PIN)
+                </button>
               </div>
-              <div style={{fontSize:12,color:'#888',marginBottom:4}}>Giá mới (đ/kg)</div>
-              <input style={s.inp} placeholder="VD: 125000" value={price} onChange={e=>setPrice(e.target.value)} type="number" inputMode="numeric"/>
-              <div style={{fontSize:12,color:'#888',marginBottom:4}}>Ghi chú</div>
-              <input style={s.inp} placeholder="VD: cà phê nhân xô" value={priceNote} onChange={e=>setPriceNote(e.target.value)}/>
-              <div style={{background:'#fff8e1',borderRadius:10,padding:'10px 14px',marginBottom:14,fontSize:12,color:'#e65100',display:'flex',gap:8}}>
-                <span>🔐</span><span>Cần xác nhận PIN để cập nhật giá</span>
+
+              {/* BLOCK 2: BẢNG GIÁ */}
+              <div style={{...s.card,margin:'0 12px 12px'}}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
+                  <div style={{fontWeight:700,fontSize:14,color:'#1565c0'}}>📋 Bảng giá</div>
+                  <button onClick={()=>setPriceTable(prev=>[...prev,{name:'',price:''}])}
+                    style={{background:'#1565c0',border:'none',color:'#fff',width:32,height:32,borderRadius:8,fontSize:20,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',fontWeight:700}}>+</button>
+                </div>
+                {priceTable.length===0 && (
+                  <div style={{textAlign:'center',padding:'16px 0',color:'#aaa',fontSize:13}}>Chưa có phân loại nào. Nhấn + để thêm.</div>
+                )}
+                {priceTable.map((item,i)=>(
+                  <div key={i} style={{display:'flex',gap:8,alignItems:'center',marginBottom:8}}>
+                    <input
+                      style={{...s.inp,marginBottom:0,flex:2}}
+                      placeholder="Tên phân loại (VD: Nhân xô)"
+                      value={item.name}
+                      onChange={e=>{const t=[...priceTable];t[i]={...t[i],name:e.target.value};setPriceTable(t)}}/>
+                    <input
+                      style={{...s.inp,marginBottom:0,flex:1}}
+                      placeholder="Giá"
+                      type="number" inputMode="numeric"
+                      value={item.price}
+                      onChange={e=>{const t=[...priceTable];t[i]={...t[i],price:e.target.value};setPriceTable(t)}}/>
+                    <button onClick={()=>setPriceTable(prev=>prev.filter((_,j)=>j!==i))}
+                      style={{background:'#ffebee',border:'none',color:'#c62828',width:32,height:32,borderRadius:8,fontSize:16,cursor:'pointer',flexShrink:0}}>🗑</button>
+                  </div>
+                ))}
+                {priceTable.length>0 && (
+                  <button style={{...s.btn,marginTop:4,background:'linear-gradient(135deg,#2e7d32,#388e3c)'}}
+                    onClick={()=>savePriceTable(priceTable.map(i=>({name:i.name,price:parseInt(i.price)||0})).filter(i=>i.name))}
+                    disabled={loading}>
+                    💾 Lưu bảng giá
+                  </button>
+                )}
               </div>
-              <button style={s.btn} onClick={()=>requirePin(doUpdatePrice)} disabled={!price||loading}>
-                💰 Cập nhật giá (yêu cầu PIN)
-              </button>
             </div>
           )}
 
