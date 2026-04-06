@@ -50,7 +50,8 @@ export default function AdminPage() {
   const [agents, setAgents] = useState([])
   const [users, setUsers] = useState([])
   const [logs, setLogs] = useState([])
-  const [ads, setAds] = useState({banner_title:'',banner_body:'',popup_title:'',popup_body:'',popup_enabled:false})
+  const [ads, setAds] = useState({banner_title:'',banner_body:'',banner_image_url:'',banner_enabled:true,popup_title:'',popup_body:'',popup_enabled:false})
+  const [bannerUploading, setBannerUploading] = useState(false)
   const [traffic, setTraffic] = useState([])
   const [saved, setSaved] = useState('')
   const [newAgent, setNewAgent] = useState({name:'',address:'',phone:'',phone2:'',zalo:'',email:'',facebook:'',lat:'',lng:'',loc:'Lam Dong'})
@@ -511,14 +512,38 @@ export default function AdminPage() {
           {screen==='ads' && (
             <div style={s.card}>
               <div style={{fontWeight:700,marginBottom:12,color:orange}}>📢 Banner trang chủ</div>
-              <div style={{fontSize:12,color:'#888',marginBottom:4}}>Tiêu đề banner</div>
-              <input style={s.inp} value={ads.banner_title||''} onChange={e=>setAds({...ads,banner_title:e.target.value})} placeholder="Tiêu đề"/>
-              <div style={{fontSize:12,color:'#888',marginBottom:4}}>Nội dung banner</div>
-              <input style={s.inp} value={ads.banner_body||''} onChange={e=>setAds({...ads,banner_body:e.target.value})} placeholder="Nội dung"/>
+              <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:8}}>
+                <div style={{fontSize:13,fontWeight:700}}>Banner quảng cáo</div>
+                <label style={{display:'flex',alignItems:'center',gap:6,cursor:'pointer'}}>
+                  <input type="checkbox" checked={ads.banner_enabled!==false} onChange={e=>setAds({...ads,banner_enabled:e.target.checked})} style={{width:16,height:16}}/>
+                  <span style={{fontSize:12,color:'#666'}}>Hiển thị</span>
+                </label>
+              </div>
+              {ads.banner_image_url && (
+                <div style={{marginBottom:8,position:'relative',display:'inline-block'}}>
+                  <img src={ads.banner_image_url} style={{width:'100%',maxHeight:120,objectFit:'cover',borderRadius:8,border:'1px solid #ddd'}}/>
+                  <button onClick={()=>setAds({...ads,banner_image_url:''})} style={{position:'absolute',top:4,right:4,background:'rgba(0,0,0,0.6)',color:'#fff',border:'none',borderRadius:'50%',width:24,height:24,cursor:'pointer',fontSize:14,display:'flex',alignItems:'center',justifyContent:'center'}}>✕</button>
+                </div>
+              )}
+              <label style={{display:'block',marginBottom:8}}>
+                <div style={{...s.btn, textAlign:'center', cursor:'pointer', background: bannerUploading?'#ccc':'#2e7d32'}}>
+                  {bannerUploading ? '⏳ Đang upload...' : '🖼️ Upload ảnh banner'}
+                </div>
+                <input type="file" accept="image/*" style={{display:'none'}} disabled={bannerUploading} onChange={async e=>{
+                  const file = e.target.files[0]; if(!file) return
+                  setBannerUploading(true)
+                  const fd = new FormData(); fd.append('file', file)
+                  const r = await fetch(`${API}/admin/ads/upload-banner`, {method:'POST', headers:{Authorization:`Bearer ${localStorage.getItem(TOKEN_KEY)}`}, body:fd})
+                  const d = await r.json()
+                  if(d.url) setAds(a=>({...a,banner_image_url:d.url}))
+                  else alert('Upload thất bại: ' + (d.detail || JSON.stringify(d)))
+                  setBannerUploading(false)
+                }}/>
+              </label>
               <div style={{fontWeight:700,margin:'16px 0 12px',color:orange}}>🪟 Popup khi mở web</div>
               <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:10}}>
                 <span style={{fontSize:13}}>Bật popup</span>
-                <input type="checkbox" checked={ads.popup_enabled||false} onChange={e=>setAds({...ads,popup_enabled:e.target.checked})} style={{width:18,height:18}}/>
+                <input type="checkbox" checked={ads.popup_enabled===true} onChange={e=>setAds(prev=>({...prev,popup_enabled:e.target.checked}))} style={{width:18,height:18}}/>
               </div>
               <div style={{fontSize:12,color:'#888',marginBottom:4}}>Tiêu đề popup</div>
               <input style={s.inp} value={ads.popup_title||''} onChange={e=>setAds({...ads,popup_title:e.target.value})} placeholder="Tiêu đề popup"/>

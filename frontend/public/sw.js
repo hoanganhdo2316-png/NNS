@@ -1,5 +1,5 @@
 // NNS Service Worker — Cache Strategy
-const CACHE_NAME = 'nns-v5'
+const CACHE_NAME = 'nns-v9'
 const STATIC_ASSETS = [
   '/',
   '/index.html',
@@ -35,9 +35,12 @@ self.addEventListener('activate', (event) => {
             return caches.delete(key)
           })
       )
-    )
+    ).then(() => self.clients.claim())
   )
-  self.clients.claim()
+})
+
+self.addEventListener('message', (event) => {
+  if (event.data === 'skipWaiting') self.skipWaiting()
 })
 
 // ── Fetch strategy ───────────────────────────────────────
@@ -50,6 +53,11 @@ self.addEventListener('fetch', (event) => {
 
   // API calls → Network first, fallback offline message
   if (url.hostname === 'api.nns.id.vn') {
+    // POST/PUT/DELETE không cache
+    if (request.method !== 'GET') {
+      event.respondWith(fetch(request))
+      return
+    }
     event.respondWith(networkFirst(request))
     return
   }

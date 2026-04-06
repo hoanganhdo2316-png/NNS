@@ -280,6 +280,7 @@ export default function HomePage() {
   const [loginLoading, setLoginLoading] = useState(false)
   const [isRegistering, setIsRegistering] = useState(false)
   const [regName, setRegName]       = useState('')
+  const [confirmPass, setConfirmPass] = useState('')
   const [splash, setSplash]         = useState(true)
 
   useEffect(() => {
@@ -333,9 +334,12 @@ export default function HomePage() {
 
   const submitRegister = async () => {
     setLoginErr('')
-    if (!regName || !loginPhone || !loginPass) {
-      setLoginErr('Vui lòng điền đủ họ tên, số điện thoại và mật khẩu'); return
-    }
+    if (!regName.trim()) { setLoginErr('Vui lòng nhập họ và tên'); return }
+    if (!loginProvince) { setLoginErr('Vui lòng chọn tỉnh/thành phố'); return }
+    if (!loginPhone.trim()) { setLoginErr('Vui lòng nhập số điện thoại'); return }
+    if (!loginPass.trim()) { setLoginErr('Vui lòng nhập mật khẩu'); return }
+    if (loginPass.trim().length < 6) { setLoginErr('Mật khẩu phải có ít nhất 6 ký tự'); return }
+    if (loginPass !== confirmPass) { setLoginErr('Mật khẩu xác nhận không khớp'); return }
     setLoginLoading(true)
     try {
       const r = await fetch(`${API}/register`, {
@@ -423,14 +427,28 @@ export default function HomePage() {
 
   // Inject giá trong nước vào coffeePrice
   useEffect(() => {
-    if (AVG > 0) {
+    if (AVG > 0 && validAgents.length > 0) {
+      // Tính AVG hôm qua từ price_history
+      const yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1); yesterday.setHours(0,0,0,0)
+      const agentsWithHistory = validAgents.filter(a => a.price_history && a.price_history.length >= 2)
+      let prevAVG = AVG
+      if (agentsWithHistory.length > 0) {
+        const prevPrices = agentsWithHistory.map(a => {
+          const hist = [...a.price_history].reverse()
+          const prev = hist.find(h => new Date(h.at) < new Date())
+          return prev ? prev.price : a.price
+        })
+        prevAVG = Math.round(prevPrices.reduce((s,p) => s+p, 0) / prevPrices.length)
+      }
+      const change = AVG - prevAVG
+      const pct = prevAVG ? Math.round(change / prevAVG * 10000) / 100 : 0
       setCoffeePrice(prev => ({
         ...(prev || {}),
         domestic: {
           price: AVG,
-          prev: AVG,
-          change: 0,
-          pct: 0,
+          prev: prevAVG,
+          change: change,
+          pct: pct,
           unit: 'VNĐ/kg',
           market: `${validAgents.length} đại lý · Trung bình`,
         }
@@ -621,7 +639,10 @@ export default function HomePage() {
         .bnav { position:fixed; bottom:0; padding-bottom:env(safe-area-inset-bottom); left:0; right:0; background:rgba(255,255,255,0.96); backdrop-filter:blur(16px); -webkit-backdrop-filter:blur(16px); border-top:1.5px solid var(--bdr); display:flex; z-index:99; box-shadow:0 -2px 12px rgba(46,125,50,0.06); }
         .bnav button { flex:1; background:none; border:none; padding:12px 0 10px; display:flex; flex-direction:column; align-items:center; gap:4px; color:var(--txt3); font-family:inherit; cursor:pointer; -webkit-tap-highlight-color:transparent; transition:color .2s; }
         .bnav button.on { color:var(--green); }
-        .bnav-ic { font-size:22px; line-height:1; }
+        .bnav button.on .bnav-ic { transform:translateY(-2px); transition:transform .2s; }
+        .bnav button.on::before { content:''; display:block; position:absolute; top:0; left:25%; right:25%; height:3px; background:var(--green); border-radius:0 0 3px 3px; }
+        .bnav button { position:relative; }
+        .bnav-ic { font-size:22px; line-height:1; transition:transform .2s; }
         .bnav-lbl { font-size:10px; font-weight:700; letter-spacing:.2px; }
 
         .overlay{position:fixed;inset:0;z-index:200;background:rgba(0,0,0,.5);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);display:flex;align-items:flex-end;justify-content:center;animation:fadeIn .25s ease;}
@@ -671,17 +692,10 @@ export default function HomePage() {
           {activeTab === 'market' && (
             <>
               {/* AD */}
-              {showAd && adData && adData.banner_title && (
-                <div className="ad">
-                  <div className="ad-lbl">QUẢNG CÁO</div>
-                  <button className="ad-x" onClick={()=>setShowAd(false)}>✕</button>
-                  <div className="ad-body">
-                    <div className="ad-icon">🌱</div>
-                    <div className="ad-copy">
-                      <h4>{adData.banner_title}</h4>
-                      <p>{adData.banner_body}</p>
-                    </div>
-                  </div>
+              {showAd && adData && adData.banner_enabled !== false && adData.banner_image_url && (
+                <div style={{position:'relative',borderRadius:'var(--r)',overflow:'hidden',border:'1.5px solid var(--bdr)'}}>
+                  <button onClick={()=>setShowAd(false)} style={{position:'absolute',top:6,right:6,background:'rgba(0,0,0,0.5)',color:'#fff',border:'none',borderRadius:'50%',width:24,height:24,cursor:'pointer',fontSize:14,display:'flex',alignItems:'center',justifyContent:'center',zIndex:1}}>✕</button>
+                  <img src={adData.banner_image_url} style={{width:'100%',display:'block',maxHeight:120,objectFit:'cover'}}/>
                 </div>
               )}
 
@@ -809,7 +823,7 @@ export default function HomePage() {
 
           {activeTab === 'shop' && <ShopTab agents={agents} />}
           {activeTab === 'assets' && <AssetsTab kg={kg} setKg={setKg} />}
-          {activeTab === 'settings' && <SettingsTab isLoggedIn={isLoggedIn} userName={userName} onLogout={handleLogout} onLoginClick={()=>setShowLogin(true)} />}
+          {activeTab === 'settings' && <SettingsTab isLoggedIn={isLoggedIn} userName={userName} onLogout={handleLogout} onLoginClick={()=>{setShowLogin(true); setIsRegistering(false); setLoginErr('')}} />}
 
         </div>
       </div>
@@ -935,6 +949,9 @@ export default function HomePage() {
             )}
             <input className="m-inp" placeholder="Số điện thoại" inputMode="tel" value={loginPhone} onChange={e=>setLoginPhone(e.target.value)} />
             <input className="m-inp" placeholder="Mật khẩu" type="password" value={loginPass} onChange={e=>setLoginPass(e.target.value)} onKeyDown={e=>e.key==='Enter'&&!isRegistering&&submitLogin()}/>
+            {isRegistering && (
+              <input className="m-inp" placeholder="Xác nhận mật khẩu" type="password" value={confirmPass} onChange={e=>setConfirmPass(e.target.value)} />
+            )}
             {!isRegistering && (
               <button className="m-btn" onClick={submitLogin} disabled={loginLoading}>
                 {loginLoading ? 'Đang xử lý...' : '🌱 Đăng nhập'}

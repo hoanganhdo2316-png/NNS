@@ -1,5 +1,6 @@
 const toVN = s => s ? new Date((s+'').endsWith('Z')||(s+'').includes('+') ? s : s+'Z').toLocaleString('vi-VN') : '';
 import { useState, useEffect } from 'react'
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts'
 import { useParams, useNavigate } from 'react-router-dom'
 
 const API = 'https://api.nns.id.vn'
@@ -129,15 +130,7 @@ export default function AgentDetailPage() {
               <div style={{fontSize:11,color:'rgba(255,255,255,.6)',marginBottom:2}}>Thông tin đại lý</div>
               <div style={{fontWeight:800,fontSize:16,color:'#fff',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{agent.name}</div>
             </div>
-            <button onClick={doFollow} disabled={followLoading}
-              style={{background: following ? 'rgba(255,255,255,.15)' : '#fff',
-                border: following ? '1px solid rgba(255,255,255,.4)' : 'none',
-                color: following ? '#fff' : '#2e7d32',
-                padding:'7px 13px',borderRadius:10,cursor:'pointer',
-                fontWeight:700,fontSize:12,flexShrink:0,
-                opacity: followLoading ? .6 : 1}}>
-              {followLoading ? '...' : following ? '✓ Đang theo dõi' : '+ Theo dõi'}
-            </button>
+
             {agent.active === false && (
               <span style={{background:'#ffebee',color:'#c62828',fontSize:11,fontWeight:700,padding:'4px 8px',borderRadius:8}}>Tạm dừng</span>
             )}
@@ -156,16 +149,12 @@ export default function AgentDetailPage() {
                 )}
               </div>
               <div style={{textAlign:'right'}}>
-                <div style={{fontSize:11,color:'rgba(255,255,255,.5)'}}>Theo dõi</div>
-                <div style={{fontSize:22,fontWeight:700,color: following ? '#ffd54f' : 'rgba(255,255,255,.85)',fontFamily:'monospace'}}>{followers}</div>
-              </div>
-              <div style={{textAlign:'right'}}>
                 <div style={{fontSize:11,color:'rgba(255,255,255,.5)'}}>Lượt xem</div>
                 <div style={{fontSize:22,fontWeight:700,color:'rgba(255,255,255,.85)',fontFamily:'monospace'}}>{agent.views || 0}</div>
               </div>
               <div style={{textAlign:'right'}}>
                 <div style={{fontSize:11,color:'rgba(255,255,255,.5)'}}>Theo dõi</div>
-                <div style={{fontSize:22,fontWeight:700,color:'rgba(255,255,255,.85)',fontFamily:'monospace'}}>{followers}</div>
+                <div style={{fontSize:22,fontWeight:700,color: following ? '#ffd54f' : 'rgba(255,255,255,.85)',fontFamily:'monospace'}}>{followers}</div>
               </div>
             </div>
             {latestPrice && (
@@ -202,9 +191,56 @@ export default function AgentDetailPage() {
         </div>
 
         <div style={{padding:'12px 12px 80px'}}>
-
           {tab === 'info' && (
             <div style={{display:'flex',flexDirection:'column',gap:10}}>
+              {agent.price_history && agent.price_history.length > 0 && (
+                <div style={{display:'flex',flexDirection:'column',gap:10}}>
+                  <div style={{background:'#fff',borderRadius:14,border:'1.5px solid var(--bdr)',padding:'12px 8px 4px'}}>
+                    <div style={{fontSize:11,color:'var(--txt3)',marginBottom:6,paddingLeft:8}}>Biến động giá 30 lần gần nhất</div>
+                    <ResponsiveContainer width="100%" height={130}>
+                      <LineChart data={[...agent.price_history].map(h => ({
+                        price: h.price,
+                        time: new Date((h.at+'').endsWith('Z')||(h.at+'').includes('+') ? h.at : h.at+'Z').toLocaleDateString('vi-VN',{day:'2-digit',month:'2-digit'})
+                      }))}>
+                        <XAxis dataKey="time" tick={{fontSize:9}} interval="preserveStartEnd" tickLine={false} axisLine={false}/>
+                        <YAxis domain={['auto','auto']} tick={{fontSize:9}} tickFormatter={v=>v/1000+'k'} tickLine={false} axisLine={false} width={32}/>
+                        <Tooltip formatter={(v)=>[`${v.toLocaleString('vi-VN')}đ/kg`,'Giá']} labelStyle={{fontSize:11}} contentStyle={{fontSize:11,borderRadius:8,border:'1px solid var(--bdr)'}}/>
+                        <ReferenceLine y={agent.price} stroke="#2e7d32" strokeDasharray="3 3" strokeWidth={1}/>
+                        <Line type="monotone" dataKey="price" stroke="#2e7d32" strokeWidth={2} dot={false} activeDot={{r:4}}/>
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                  <div style={{background:'#fff',borderRadius:14,border:'1.5px solid var(--bdr)',overflow:'hidden'}}>
+                    {[...agent.price_history].reverse().slice(0,3).map((h,i) => {
+                      const idx = agent.price_history.length - 1 - i
+                      const prev = agent.price_history[idx-1]
+                      const change = prev ? h.price - prev.price : 0
+                      return (
+                        <div key={i} style={{display:'flex',alignItems:'center',gap:12,padding:'12px 16px',
+                          borderBottom:i<2?'1px solid var(--bdr)':'none',
+                          background:i===0?'var(--green3)':'#fff'}}>
+                          <div style={{flex:1}}>
+                            <div style={{fontSize:14,fontWeight:700,fontFamily:'JetBrains Mono,monospace',color:i===0?'var(--green)':'var(--txt)'}}>
+                              {fmt(h.price)}đ/kg
+                              {i===0 && <span style={{fontSize:10,marginLeft:6,color:'var(--green2)'}}>MỚI NHẤT</span>}
+                            </div>
+                            {h.note && <div style={{fontSize:11,color:'var(--txt3)',marginTop:2}}>{h.note}</div>}
+                          </div>
+                          <div style={{textAlign:'right'}}>
+                            {change!==0 && <div style={{marginBottom:3}}><ChangeTag val={change}/></div>}
+                            <div style={{fontSize:10,color:'var(--txt3)',fontFamily:'monospace'}}>{toVN(h.at)}</div>
+                          </div>
+                        </div>
+                      )
+                    })}
+                    {agent.price_history.length > 3 && (
+                      <button onClick={()=>setTab('history')} style={{width:'100%',padding:'12px',border:'none',background:'var(--bg2)',color:'var(--green)',fontWeight:700,fontSize:13,cursor:'pointer',fontFamily:'inherit'}}>
+                        Xem thêm {agent.price_history.length-3} lần cập nhật →
+                      </button>
+                    )}
+                  </div>
+                </div>
+              )}
               <div style={{background:'#fff',borderRadius:14,border:'1.5px solid var(--bdr)',overflow:'hidden'}}>
                 {[
                   { icon:'📍', label:'Địa chỉ',   val: agent.address },
@@ -263,7 +299,6 @@ export default function AgentDetailPage() {
               )}
             </div>
           )}
-
           {tab === 'products' && (
             <div>
               {(!agent.products || agent.products.length === 0) ? (
@@ -297,7 +332,24 @@ export default function AgentDetailPage() {
           )}
 
           {tab === 'history' && (
-            <div>
+            <div style={{display:'flex',flexDirection:'column',gap:10}}>
+              {agent.price_history && agent.price_history.length > 0 && (
+                <div style={{background:'#fff',borderRadius:14,border:'1.5px solid var(--bdr)',padding:'12px 8px 4px'}}>
+                  <div style={{fontSize:11,color:'var(--txt3)',marginBottom:6,paddingLeft:8}}>Biến động giá 30 lần gần nhất</div>
+                  <ResponsiveContainer width="100%" height={130}>
+                    <LineChart data={[...agent.price_history].map(h => ({
+                      price: h.price,
+                      time: new Date((h.at+'').endsWith('Z')||(h.at+'').includes('+') ? h.at : h.at+'Z').toLocaleDateString('vi-VN',{day:'2-digit',month:'2-digit'})
+                    }))}>
+                      <XAxis dataKey="time" tick={{fontSize:9}} interval="preserveStartEnd" tickLine={false} axisLine={false}/>
+                      <YAxis domain={['auto','auto']} tick={{fontSize:9}} tickFormatter={v=>v/1000+'k'} tickLine={false} axisLine={false} width={32}/>
+                      <Tooltip formatter={(v)=>[`${v.toLocaleString('vi-VN')}đ/kg`,'Giá']} labelStyle={{fontSize:11}} contentStyle={{fontSize:11,borderRadius:8,border:'1px solid var(--bdr)'}}/>
+                      <ReferenceLine y={agent.price} stroke="#2e7d32" strokeDasharray="3 3" strokeWidth={1}/>
+                      <Line type="monotone" dataKey="price" stroke="#2e7d32" strokeWidth={2} dot={false} activeDot={{r:4}}/>
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
               {(!agent.price_history || agent.price_history.length === 0) ? (
                 <div style={{textAlign:'center',padding:'48px 20px',color:'var(--txt3)'}}>
                   <div style={{fontSize:40,marginBottom:12}}>📈</div>
@@ -305,6 +357,7 @@ export default function AgentDetailPage() {
                   <div style={{fontSize:13}}>Đại lý chưa cập nhật giá lần nào</div>
                 </div>
               ) : (
+                <>
                 <div style={{background:'#fff',borderRadius:14,border:'1.5px solid var(--bdr)',overflow:'hidden'}}>
                   {[...agent.price_history].reverse().map((h, i) => {
                     const prev = agent.price_history[agent.price_history.length - 2 - i]
@@ -330,6 +383,7 @@ export default function AgentDetailPage() {
                     )
                   })}
                 </div>
+                </>
               )}
             </div>
           )}
