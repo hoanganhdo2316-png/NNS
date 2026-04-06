@@ -86,8 +86,6 @@ VAPID_CLAIMS = {"sub": "mailto:admin@nns.id.vn"}
 scheduler = AsyncIOScheduler()
 
 # Zalo OAuth config
-ZALO_APP_ID = "2996379276447803360"
-ZALO_SECRET_KEY = "Q1OvXwKQ7f6F2D1g45RY"
 
 # 5. Auth config
 SECRET_KEY = os.getenv("SECRET_KEY", "agribot-secret-key-2026")
@@ -127,11 +125,8 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
         return None
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        zalo_id = payload.get("zalo_id")
-        if zalo_id:
-            user = await users_col.find_one({"zalo_id": zalo_id})
-        else:
-            user = await users_col.find_one({"so_dien_thoai": payload.get("sub")})
+
+        user = await users_col.find_one({"so_dien_thoai": payload.get("sub")})
         if user and user.get("active") == False:
             raise HTTPException(status_code=403, detail="Tai khoan bi khoa")
         return user
@@ -175,87 +170,7 @@ async def register(req: RegisterRequest):
     return {"message": "Dang ky thanh cong!"}
 
 # ZALO LOGIN
-class ZaloAuthRequest(BaseModel):
-    code: str
-    code_verifier: str = ""
 
-@app.post("/auth/zalo")
-async def zalo_login(req: ZaloAuthRequest):
-    # Đổi code lấy access_token từ Zalo
-    try:
-        resp = _requests.post(
-            "https://oauth.zaloapp.com/v4/access_token",
-            data={
-                "app_id": ZALO_APP_ID,
-                "code": req.code,
-                "grant_type": "authorization_code",
-                "code_verifier": req.code_verifier
-            },
-            headers={
-                "Content-Type": "application/x-www-form-urlencoded",
-                "secret_key": ZALO_SECRET_KEY
-            },
-            timeout=10
-        )
-        token_data = resp.json()
-    except Exception as ex:
-        raise HTTPException(status_code=500, detail=f"Zalo token error: {ex}")
-
-    access_token = token_data.get("access_token")
-    if not access_token:
-        raise HTTPException(status_code=400, detail=f"Zalo auth failed: {token_data.get('error_description', token_data)}")
-
-    # Lấy thông tin user từ Zalo
-    try:
-        user_resp = _requests.get(
-            "https://zalo-proxy.hoanganhdo2316.workers.dev/zalo-proxy",
-            params={"access_token": access_token},
-            timeout=10
-        )
-        zalo_user = user_resp.json()
-        print(f"Zalo user response: {zalo_user}")
-    except Exception as ex:
-        raise HTTPException(status_code=500, detail=f"Zalo user info error: {ex}")
-
-    zalo_id = zalo_user.get("id")
-    if not zalo_id:
-        print(f"Zalo user data: {zalo_user}")
-        raise HTTPException(status_code=400, detail="Khong lay duoc thong tin Zalo")
-
-    # Tìm hoặc tạo user
-    user = await users_col.find_one({"zalo_id": zalo_id})
-    if not user:
-        avatar = ""
-        try:
-            avatar = zalo_user.get("picture", {}).get("data", {}).get("url", "")
-        except Exception:
-            pass
-        await users_col.insert_one({
-            "ho_ten": zalo_user.get("name", ""),
-            "so_dien_thoai": "",
-            "zalo_id": zalo_id,
-            "avatar": avatar,
-            "password_hash": "",
-            "dia_chi": {}, "ngay_sinh": "",
-            "created_at": datetime.now(VN_TZ),
-            "last_login": datetime.now(VN_TZ),
-            "active": True,
-            "pin_hash": ""
-        })
-        user = await users_col.find_one({"zalo_id": zalo_id})
-
-    if user.get("active") == False:
-        raise HTTPException(status_code=403, detail="Tai khoan bi khoa")
-
-    await users_col.update_one({"zalo_id": zalo_id}, {"$set": {"last_login": datetime.now(VN_TZ)}})
-    token = create_token({"sub": f"zalo_{zalo_id}", "zalo_id": zalo_id})
-    return {
-        "access_token": token,
-        "token_type": "bearer",
-        "ho_ten": user.get("ho_ten", ""),
-        "zalo_id": zalo_id,
-        "avatar": user.get("avatar", "")
-    }
 # LOGIN
 @app.post("/login")
 async def login(form: OAuth2PasswordRequestForm = Depends()):
@@ -495,7 +410,6 @@ class AgentProfileUpdate(BM):
     address: Optional[str] = None
     phone: Optional[str] = None
     phone2: Optional[str] = None
-    zalo: Optional[str] = None
     email: Optional[str] = None
     facebook: Optional[str] = None
 
@@ -1055,107 +969,12 @@ async def admin_upload_catalog_image(file: UploadFile = File(...), admin=Depends
     return {"url": f"https://nns.id.vn/uploads/{filename}"}
 
 # -- FIREBASE OTP --
-import firebase_admin
-from firebase_admin import credentials as fb_credentials, auth as fb_auth
 
-_fb_cred = fb_credentials.Certificate("/root/NNS/backend/firebase-adminsdk.json")
-firebase_admin.initialize_app(_fb_cred)
-
-@app.post("/otp/verify")
-async def verify_otp(req: dict):
-    id_token = req.get("id_token", "").strip()
-    if not id_token:
-        raise HTTPException(status_code=400, detail="Thieu id_token")
-
-    try:
-        decoded = fb_auth.verify_id_token(id_token)
-        phone = decoded.get("phone_number", "")
-        if not phone:
-            raise HTTPException(status_code=400, detail="Khong lay duoc so dien thoai")
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Token khong hop le: {str(e)}")
-
-    # Chuẩn hóa về 0xxxxxxxxx
-    if phone.startswith("+84"):
-        phone_local = "0" + phone[3:]
-    elif phone.startswith("84"):
-        phone_local = "0" + phone[2:]
-    else:
-        phone_local = phone
-
-    user = await users_col.find_one({"so_dien_thoai": {"$in": [phone_local, phone, "+" + phone_local[1:]]}})
-    if not user:
-        await users_col.insert_one({
-            "ho_ten": "",
-            "so_dien_thoai": phone_local,
-            "password_hash": "",
-            "active": True,
-            "created_at": datetime.now(VN_TZ),
-            "last_login": datetime.now(VN_TZ),
-        })
-        user = await users_col.find_one({"so_dien_thoai": phone_local})
-    else:
-        await users_col.update_one({"_id": user["_id"]}, {"$set": {"last_login": datetime.now(VN_TZ)}})
-
-    token = create_token({"sub": phone_local})
-    return {
-        "ok": True,
-        "access_token": token,
-        "ho_ten": user.get("ho_ten", ""),
-        "is_new": not user.get("ho_ten")
-    }
 
 
 # ── ZALO LOGIN V2 (frontend gọi Zalo Graph API) ──────────
-@app.post("/auth/zalo/token")
-async def zalo_get_token(req: ZaloAuthRequest):
-    try:
-        resp = _requests.post(
-            "https://oauth.zaloapp.com/v4/access_token",
-            data={
-                "app_id": ZALO_APP_ID,
-                "code": req.code,
-                "grant_type": "authorization_code",
-                "code_verifier": req.code_verifier
-            },
-            headers={
-                "Content-Type": "application/x-www-form-urlencoded",
-                "secret_key": ZALO_SECRET_KEY
-            },
-            timeout=10
-        )
-        token_data = resp.json()
-    except Exception as ex:
-        raise HTTPException(status_code=500, detail=f"Zalo token error: {ex}")
-
-    access_token = token_data.get("access_token")
-    if not access_token:
-        raise HTTPException(status_code=400, detail=f"Zalo auth failed: {token_data.get('error_description', token_data)}")
     return {"access_token": access_token}
 
-class ZaloUserInfo(BaseModel):
-    zalo_id: str
-    name: str
-    picture: str = ""
-
-@app.post("/auth/zalo/login")
-async def zalo_create_session(req: ZaloUserInfo):
-    user = await users_col.find_one({"zalo_id": req.zalo_id})
-    if not user:
-        await users_col.insert_one({
-            "ho_ten": req.name,
-            "so_dien_thoai": "",
-            "zalo_id": req.zalo_id,
-            "avatar": req.picture,
-            "password_hash": "",
-            "active": True,
-            "created_at": datetime.now(VN_TZ),
-            "last_login": datetime.now(VN_TZ),
-        })
-        user = await users_col.find_one({"zalo_id": req.zalo_id})
-    else:
-        await users_col.update_one({"zalo_id": req.zalo_id}, {"$set": {"last_login": datetime.now(VN_TZ)}})
-    token = create_token({"sub": user.get("so_dien_thoai") or req.zalo_id})
     return {"access_token": token, "ho_ten": user.get("ho_ten") or req.name}
 
 # ── REFRESH TOKEN ──────────────────────────────────────
