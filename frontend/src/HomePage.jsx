@@ -1,10 +1,11 @@
 
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import useSwipeBack from './useSwipeBack'
 import usePullToRefresh from './usePullToRefresh'
 import { useNavigate } from 'react-router-dom'
 
+import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
 const API = 'https://api.nns.id.vn'
 
 const TABS = {
@@ -25,7 +26,7 @@ function ChangeTag({ val, suffix = '' }) {
   )
 }
 
-function CoffeePriceDisplay({ data, loading, usdVnd, vcbAt, tab, onRefresh }) {
+function CoffeePriceDisplay({ data, loading, usdVnd, vcbAt, tab, onRefresh, domesticHistory = [] }) {
   if (loading && !data) return (
     <div style={{textAlign:'center',padding:'32px 0',color:'var(--txt3)',fontSize:13}}>
       <div style={{fontSize:22,marginBottom:8}}>⏳</div>
@@ -91,6 +92,19 @@ function CoffeePriceDisplay({ data, loading, usdVnd, vcbAt, tab, onRefresh }) {
         </div>
       </div>
 
+      {tab === 'domestic' && domesticHistory.length > 1 && (
+        <div style={{background:'var(--surf)',border:'1.5px solid var(--bdr)',borderRadius:'var(--rs)',padding:'8px 8px 4px'}}>
+          <div style={{fontSize:10,color:'var(--txt3)',marginBottom:4,paddingLeft:4}}>Lịch sử giá 30 ngày</div>
+          <ResponsiveContainer width="100%" height={80}>
+            <LineChart data={domesticHistory}>
+              <XAxis dataKey="time" tick={{fontSize:8}} interval="preserveStartEnd" tickLine={false} axisLine={false}/>
+              <YAxis domain={['auto','auto']} tick={{fontSize:8}} tickFormatter={v=>v/1000+'k'} tickLine={false} axisLine={false} width={28}/>
+              <Tooltip formatter={(v)=>[`${v.toLocaleString('vi-VN')}đ/kg`,'TB']} contentStyle={{fontSize:10,borderRadius:6}}/>
+              <Line type="monotone" dataKey="price" stroke={clr} strokeWidth={2} dot={false} activeDot={{r:3}}/>
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      )}
       {tab !== 'domestic' && (
       <div style={{
         display:'flex',alignItems:'center',justifyContent:'space-between',
@@ -177,6 +191,10 @@ function AssetsTab({ kg, setKg }) {
           <span className="kg-unit">kg</span>
         </div>
       </div>
+      <button className="act" style={{width:'100%',marginTop:16,borderColor:'var(--green)',color:'var(--green)',display:'flex',alignItems:'center',justifyContent:'center',gap:8}}
+        onClick={()=>alert('Tính năng đang phát triển!')}>
+        <span style={{fontSize:18}}>📋</span> Chốt cà phê
+      </button>
     </div>
   )
 }
@@ -425,6 +443,26 @@ export default function HomePage() {
   const total = kg * AVG
   const diff  = 0
 
+  // Tính lịch sử AVG theo ngày từ price_history
+  const domesticHistory = useMemo(() => {
+    const agentsWithHist = validAgents.filter(a => a.price_history && a.price_history.length > 0)
+    if (agentsWithHist.length === 0) return []
+    // Gom tất cả entries theo ngày
+    const byDate = {}
+    agentsWithHist.forEach(a => {
+      a.price_history.forEach(h => {
+        const date = new Date((h.at+'').endsWith('Z')||(h.at+'').includes('+') ? h.at : h.at+'Z')
+        const key = date.toLocaleDateString('vi-VN', {day:'2-digit', month:'2-digit'})
+        if (!byDate[key]) byDate[key] = []
+        byDate[key].push(h.price)
+      })
+    })
+    return Object.entries(byDate).map(([time, prices]) => ({
+      time,
+      price: Math.round(prices.reduce((s,p)=>s+p,0) / prices.length)
+    })).slice(-30)
+  }, [validAgents])
+
   // Inject giá trong nước vào coffeePrice
   useEffect(() => {
     if (AVG > 0 && validAgents.length > 0) {
@@ -636,7 +674,7 @@ export default function HomePage() {
         .ag-chg{font-size:11px;font-family:'JetBrains Mono',monospace;margin-top:2px;font-weight:600;}
 
         /* BOTTOM NAV */
-        .bnav { position:fixed; bottom:0; padding-bottom:env(safe-area-inset-bottom); left:0; right:0; background:rgba(255,255,255,0.96); backdrop-filter:blur(16px); -webkit-backdrop-filter:blur(16px); border-top:1.5px solid var(--bdr); display:flex; z-index:99; box-shadow:0 -2px 12px rgba(46,125,50,0.06); }
+        .bnav { position:fixed; bottom:0; padding-bottom:env(safe-area-inset-bottom); left:0; right:0; background:rgba(255,255,255,0.96); backdrop-filter:blur(16px); -webkit-backdrop-filter:blur(16px); border-top:1.5px solid var(--bdr); display:flex; z-index:99; box-shadow:0 -2px 12px rgba(46,125,50,0.06); transform:translateZ(0); -webkit-transform:translateZ(0); will-change:transform; }
         .bnav button { flex:1; background:none; border:none; padding:12px 0 10px; display:flex; flex-direction:column; align-items:center; gap:4px; color:var(--txt3); font-family:inherit; cursor:pointer; -webkit-tap-highlight-color:transparent; transition:color .2s; }
         .bnav button.on { color:var(--green); }
         .bnav button.on .bnav-ic { transform:translateY(-2px); transition:transform .2s; }
@@ -702,26 +740,24 @@ export default function HomePage() {
               {/* ASSET */}
               {isLoggedIn && (
                 <div className="card fu d1">
-                  <div className="asset-row">
-                    <div className="av">{userName ? userName[0].toUpperCase() : 'U'}</div>
-                    <div className="asset-meta">
-                      <div className="asset-name">{userName || 'Người dùng'}</div>
-                      <div className="asset-live"><span className="dot"/>Cập nhật {new Date().toLocaleTimeString('vi-VN', {hour:'2-digit', minute:'2-digit'})}</div>
+                  <div>
+                    <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:6}}>
+                      <div className="av">{userName ? userName[0].toUpperCase() : 'U'}</div>
+                      <div className="asset-meta">
+                        <div className="asset-name">{userName || 'Người dùng'}</div>
+                        <div className="asset-live"><span className="dot"/>Cập nhật {new Date().toLocaleTimeString('vi-VN', {hour:'2-digit', minute:'2-digit'})}</div>
+                      </div>
                     </div>
-                    <div className="asset-val">
+                    <div className="asset-val" style={{textAlign:'left'}}>
                       <div className="big-num">{fmt(total)}<small> đ</small></div>
-                      <div style={{marginTop:3,textAlign:'right'}}><ChangeTag val={diff} suffix=" đ"/></div>
+                      <div style={{marginTop:3,textAlign:'left'}}><ChangeTag val={diff} suffix=" đ"/></div>
                     </div>
                   </div>
                 </div>
               )}
 
               {/* ACTIONS */}
-              <div className="actions fu d2">
-                <button className="act"><span className="act-icon">📋</span><span className="act-lbl">Chốt cà phê</span></button>
-                <button className="act" onClick={() => setActiveTab('shop')}><span className="act-icon">🛒</span><span className="act-lbl">Đặt mua phân</span></button>
-                <button className="act dim"><span className="act-icon">⋯</span><span className="act-lbl">Sắp ra mắt</span></button>
-              </div>
+
 
               {/* CHART CARD */}
               <div className="card fu d3">
@@ -740,6 +776,7 @@ export default function HomePage() {
                   vcbAt={vcbAt}
                   tab={tab}
                   onRefresh={loadCoffeePrice}
+                  domesticHistory={domesticHistory}
                 />
               </div>
 
