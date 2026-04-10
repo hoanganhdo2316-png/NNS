@@ -85,25 +85,6 @@ VAPID_PRIVATE_KEY = "5UTljMfDeBNbWzfJNpsIITHnaA9JyyNibM9Sr53W9lE"
 VAPID_CLAIMS = {"sub": "mailto:admin@nns.id.vn"}
 scheduler = AsyncIOScheduler()
 
-async def reset_daily_prices():
-    """Chay luc 0h: reset price = 0 cho tat ca dai ly"""
-    from datetime import datetime
-    now = datetime.now(VN_TZ)
-    yesterday = now.strftime("%Y-%m-%d")
-    agents = await db["agents"].find({"price": {"$gt": 0}}).to_list(1000)
-    for agent in agents:
-        entry = {"date": yesterday, "price": agent["price"], "at": now}
-        await db["agents"].update_one(
-            {"_id": agent["_id"]},
-            {
-                "$set": {"price": 0, "updated_at": now},
-                "$push": {"daily_history": {"$each": [entry], "$slice": -90}}
-            }
-        )
-    print(f"[CRON] Reset gia {len(agents)} dai ly luc 0h ngay {yesterday}")
-
-scheduler.add_job(reset_daily_prices, "cron", hour=0, minute=0, timezone="Asia/Ho_Chi_Minh")
-
 # Zalo OAuth config
 
 # 5. Auth config
@@ -476,33 +457,6 @@ async def agent_push_subscribe(sub: PushSubscriptionReq, user=Depends(get_curren
     )
     return {"message": "Subscribed successfully"}
 
-
-async def send_push_to_agents_list(agents_list: list, message: str):
-    import json as _json
-    import asyncio
-    from concurrent.futures import ThreadPoolExecutor
-    payload = _json.dumps({"title": "NNS Thông báo", "body": message, "url": "/agent"})
-    expired_ids = []
-    def do_push(agent_id, sub, name):
-        try:
-            webpush(
-                subscription_info=sub,
-                data=payload,
-                vapid_private_key=VAPID_PRIVATE_KEY,
-                vapid_claims={"sub": "mailto:admin@nns.id.vn"}
-            )
-        except WebPushException as e:
-            response = e.response if hasattr(e, 'response') and e.response else None
-            status = response.status_code if response else 0
-            if status in (404, 410):
-                expired_ids.append(agent_id)
-    loop = asyncio.get_running_loop()
-    with ThreadPoolExecutor() as pool:
-        tasks = [loop.run_in_executor(pool, do_push, a["_id"], a["push_subscription"], a.get("name","")) for a in agents_list]
-        await asyncio.gather(*tasks)
-    for agent_id in expired_ids:
-        await db["agents"].update_one({"_id": agent_id}, {"$unset": {"push_subscription": ""}})
-
 async def send_push_to_agents(message: str):
     import json as _json
     import asyncio
@@ -566,28 +520,14 @@ async def agent_me(agent=Depends(get_current_agent)):
 @app.put("/agent/price")
 async def agent_update_price(req: AgentPriceUpdate, agent=Depends(get_current_agent)):
     now = datetime.now(VN_TZ)
-    # Chỉ lưu vào price_history nếu hôm nay chưa có entry, hoặc update entry hôm nay
-    today = now.strftime('%Y-%m-%d')
-    history_entry = {"price": req.price, "note": req.note, "at": now, "date": today}
-    agent_doc = await db["agents"].find_one({"_id": ObjectId(agent["_id"])})
-    price_history = agent_doc.get("price_history", [])
-    # Kiểm tra đã có entry hôm nay chưa
-    has_today = any(h.get("date") == today for h in price_history)
-    if has_today:
-        # Update entry hôm nay (giá mới nhất)
-        await db["agents"].update_one(
-            {"_id": ObjectId(agent["_id"]), "price_history.date": today},
-            {"$set": {"price": req.price, "updated_at": now, "price_history.$.price": req.price, "price_history.$.at": now}}
-        )
-    else:
-        # Thêm entry mới cho hôm nay
-        await db["agents"].update_one(
-            {"_id": ObjectId(agent["_id"])},
-            {
-                "$set": {"price": req.price, "updated_at": now},
-                "$push": {"price_history": {"$each": [history_entry], "$slice": -90}}
-            }
-        )
+    history_entry = {"price": req.price, "note": req.note, "at": now}
+    await db["agents"].update_one(
+        {"_id": ObjectId(agent["_id"])},
+        {
+            "$set": {"price": req.price, "updated_at": now},
+            "$push": {"price_history": {"$each": [history_entry], "$slice": -30}}
+        }
+    )
     loc_str = f" | Tọa độ: {req.lat}, {req.lng}" if req.lat and req.lng else ""
     await db["agent_logs"].insert_one({
         "agent_id": agent["_id"],
@@ -788,11 +728,6 @@ async def admin_lock_agent(agent_id: str, admin=Depends(verify_admin)):
         raise HTTPException(status_code=404, detail="Khong tim thay")
     new_status = not agent.get("active", True)
     await db["agents"].update_one({"_id": ObjectId(agent_id)}, {"$set": {"active": new_status}})
-    if not new_status:
-        await ws_manager.broadcast({
-            "type": "agent_locked",
-            "agent_id": agent_id
-        })
     return {"ok": True, "active": new_status}
 
 @app.put("/admin/agents/{agent_id}/price")
@@ -955,64 +890,6 @@ async def follow_agent(agent_id: str, current_user=Depends(get_current_user)):
     else:
         await db["agents"].update_one({"_id": ObjectId(agent_id)}, {"$addToSet": {"followers": phone}})
         return {"ok": True, "following": True, "followers": len(followers) + 1}
-
-
-@app.get("/admin/price-stats")
-async def admin_price_stats(admin=Depends(verify_admin)):
-    from datetime import datetime
-    now = datetime.now(VN_TZ)
-    today = now.strftime('%Y-%m-%d')
-    all_agents = await db["agents"].find({"active": True}).to_list(1000)
-    updated = [a for a in all_agents if a.get("price", 0) > 0]
-    not_updated = [a for a in all_agents if a.get("price", 0) == 0]
-    avg = round(sum(a["price"] for a in updated) / len(updated)) if updated else 0
-    return {
-        "total": len(all_agents),
-        "updated": len(updated),
-        "not_updated": len(not_updated),
-        "avg_price": avg,
-        "not_updated_ids": [str(a["_id"]) for a in not_updated],
-        "not_updated_names": [a.get("name","") for a in not_updated],
-    }
-
-@app.post("/admin/remind-price")
-async def admin_remind_price(admin=Depends(verify_admin)):
-    all_agents = await db["agents"].find({"active": True, "price": 0, "push_subscription": {"$exists": True}}).to_list(1000)
-    msg = "Hãy báo giá thu mua ngày hôm nay ngay!"
-    await send_push_to_agents_list(all_agents, msg)
-    return {"ok": True, "sent": len(all_agents)}
-
-@app.post("/admin/auto-price")
-async def admin_auto_price(admin=Depends(verify_admin)):
-    from datetime import datetime
-    now = datetime.now(VN_TZ)
-    today = now.strftime('%Y-%m-%d')
-    # Lấy giá TB từ các đại lý đã cập nhật
-    updated = await db["agents"].find({"active": True, "price": {"$gt": 0}}).to_list(1000)
-    if not updated:
-        return {"ok": False, "detail": "Chưa có đại lý nào báo giá hôm nay"}
-    avg = round(sum(a["price"] for a in updated) / len(updated))
-    # Cập nhật giá TB cho các đại lý chưa báo giá
-    not_updated = await db["agents"].find({"active": True, "price": 0}).to_list(1000)
-    for agent in not_updated:
-        history_entry = {"price": avg, "note": "Tự động theo TB", "at": now, "date": today}
-        agent_doc = await db["agents"].find_one({"_id": agent["_id"]})
-        price_history = agent_doc.get("price_history", [])
-        has_today = any(h.get("date") == today for h in price_history)
-        if has_today:
-            await db["agents"].update_one(
-                {"_id": agent["_id"], "price_history.date": today},
-                {"$set": {"price": avg, "price_history.$.price": avg}}
-            )
-        else:
-            await db["agents"].update_one(
-                {"_id": agent["_id"]},
-                {
-                    "$set": {"price": avg},
-                    "$push": {"price_history": {"$each": [history_entry], "$slice": -90}}
-                }
-            )
-    return {"ok": True, "avg": avg, "auto_updated": len(not_updated)}
 
 @app.get("/agents/{agent_id}/follow-status")
 async def follow_status(agent_id: str, current_user=Depends(get_current_user)):

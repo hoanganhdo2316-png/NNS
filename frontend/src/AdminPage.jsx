@@ -35,8 +35,6 @@ export default function AdminPage() {
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
   const [screen, setScreen] = useState('home')
-  const [priceStats, setPriceStats] = useState(null)
-  const [priceStatsLoading, setPriceStatsLoading] = useState(false)
   const [splash, setSplash] = useState(true)
 
   useEffect(() => {
@@ -222,7 +220,7 @@ export default function AdminPage() {
     card: {background:'#fff', borderRadius:14, padding:16, margin:'0 12px 12px',
       boxShadow:'0 2px 8px rgba(230,81,0,.08)', border:'1px solid #ffe0b2'},
     inp: {width:'100%', padding:'11px 14px', borderRadius:10, border:'1.5px solid #ffe0b2',
-      fontSize:14, marginBottom:8, boxSizing:'border-box', outline:'none', background:'#fff8f0', fontFamily:'inherit'},
+      fontSize:14, marginBottom:8, boxSizing:'border-box', outline:'none', background:'#fff8f0', fontFamily:'inherit', WebkitUserSelect:'text', userSelect:'text', touchAction:'manipulation'},
     btn: {width:'100%', padding:'13px', borderRadius:10, background:orange,
       color:'#fff', fontWeight:700, fontSize:14, border:'none', cursor:'pointer'},
     btn2: (active) => ({padding:'9px 14px', borderRadius:10, border:'none', cursor:'pointer',
@@ -239,7 +237,6 @@ export default function AdminPage() {
     {id:'logs',   icon:'📜', label:'Nhật ký', count:logs.length, color:'#4a148c', bg:'#f3e5f5'},
     {id:'push',   icon:'🔔', label:'Gửi Push', count:'', color:'#d81b60', bg:'#fce4ec'},
     {id:'catalog', icon:'📦', label:'Danh mục SP', count:'', color:'#1565c0', bg:'#e3f2fd'},
-    {id:'price_mgmt', icon:'💰', label:'Quản lý giá', count:'', color:'#2e7d32', bg:'#e8f5e9'},
   ]
 
   if (splash) return (
@@ -282,15 +279,7 @@ export default function AdminPage() {
           <div style={{fontSize:11,opacity:.8,marginTop:2}}>Quản trị hệ thống</div>
         </div>
         <div style={{display:'flex',gap:8,alignItems:'center'}}>
-          <button onClick={async()=>{
-            setShowNoti(true)
-            const unread = notifications.filter(n=>!n.read)
-            if(unread.length>0){
-              const headers = {'Content-Type':'application/json', Authorization:`Bearer ${localStorage.getItem(TOKEN_KEY)}`}
-              await Promise.all(unread.map(n=>fetch(`${API}/admin/notifications/${n._id}/read`,{method:'PUT',headers})))
-              setNotifications(prev=>prev.map(n=>({...n,read:true})))
-            }
-          }} style={{position:'relative',background:'rgba(255,255,255,.2)',border:'1px solid rgba(255,255,255,.3)',
+          <button onClick={()=>setShowNoti(true)} style={{position:'relative',background:'rgba(255,255,255,.2)',border:'1px solid rgba(255,255,255,.3)',
             color:'#fff',padding:'7px 13px',borderRadius:10,cursor:'pointer',fontSize:18}}>
             🔔
             {notifications.filter(n=>!n.read).length>0 && (
@@ -690,67 +679,6 @@ export default function AdminPage() {
                     }} style={{background:"#ffebee",border:"none",color:"#c62828",padding:"8px 12px",borderRadius:10,cursor:"pointer",fontSize:16}}>🗑</button>
                   </div>
                 ))}
-              </div>
-            </div>
-          )}
-
-          {screen==='price_mgmt' && (
-            <div>
-              <div style={s.card}>
-                <div style={{fontWeight:700,fontSize:14,color:'#2e7d32',marginBottom:12}}>📊 Thống kê báo giá hôm nay</div>
-                {!priceStats && !priceStatsLoading && (
-                  <button style={{...s.btn,background:'#2e7d32'}} onClick={async()=>{
-                    setPriceStatsLoading(true)
-                    const tok = localStorage.getItem(TOKEN_KEY)
-                    const r = await fetch(`${API}/admin/price-stats`,{headers:{Authorization:`Bearer ${tok}`}})
-                    if(r.ok) setPriceStats(await r.json())
-                    setPriceStatsLoading(false)
-                  }}>📊 Tải thống kê</button>
-                )}
-                {priceStatsLoading && <div style={{textAlign:'center',padding:16,color:'#888'}}>⏳ Đang tải...</div>}
-                {priceStats && (
-                  <div>
-                    <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10,marginBottom:16}}>
-                      <div style={{background:'#e8f5e9',borderRadius:12,padding:'14px',textAlign:'center'}}>
-                        <div style={{fontSize:28,fontWeight:800,color:'#2e7d32'}}>{priceStats.updated}</div>
-                        <div style={{fontSize:11,color:'#555',marginTop:4}}>Đã báo giá</div>
-                      </div>
-                      <div style={{background:'#ffebee',borderRadius:12,padding:'14px',textAlign:'center'}}>
-                        <div style={{fontSize:28,fontWeight:800,color:'#c62828'}}>{priceStats.not_updated}</div>
-                        <div style={{fontSize:11,color:'#555',marginTop:4}}>Chưa báo giá</div>
-                      </div>
-                      <div style={{background:'#e3f2fd',borderRadius:12,padding:'14px',textAlign:'center',gridColumn:'1/-1'}}>
-                        <div style={{fontSize:24,fontWeight:800,color:'#1565c0',fontFamily:'monospace'}}>{priceStats.avg_price>0?fmt(priceStats.avg_price)+'đ':'—'}</div>
-                        <div style={{fontSize:11,color:'#555',marginTop:4}}>Giá trung bình</div>
-                      </div>
-                    </div>
-                    {priceStats.not_updated_names.length > 0 && (
-                      <div style={{background:'#fff8e1',borderRadius:10,padding:'10px 14px',marginBottom:12,fontSize:12,color:'#e65100'}}>
-                        <div style={{fontWeight:700,marginBottom:6}}>Chưa báo giá ({priceStats.not_updated_names.length}):</div>
-                        {priceStats.not_updated_names.slice(0,5).map((n,i)=>(
-                          <div key={i} style={{padding:'2px 0'}}>• {n}</div>
-                        ))}
-                        {priceStats.not_updated_names.length > 5 && <div style={{color:'#888',marginTop:4}}>...và {priceStats.not_updated_names.length-5} đại lý khác</div>}
-                      </div>
-                    )}
-                    <button style={{...s.btn,marginBottom:8,background:'#e65100'}} onClick={async()=>{
-                      if(!confirm('Gửi nhắc nhở cho '+priceStats.not_updated+' đại lý chưa báo giá?')) return
-                      const tok = localStorage.getItem(TOKEN_KEY)
-                      const r = await fetch(`${API}/admin/remind-price`,{method:'POST',headers:{Authorization:`Bearer ${tok}`}})
-                      const d = await r.json()
-                      setSaved('✅ Đã gửi nhắc nhở cho '+d.sent+' đại lý!')
-                    }}>🔔 Nhắc nhở đại lý chưa báo giá</button>
-                    <button style={{...s.btn,background:'#1565c0'}} onClick={async()=>{
-                      if(!confirm('Tự động cập nhật giá TB ('+fmt(priceStats.avg_price)+'đ) cho '+priceStats.not_updated+' đại lý chưa báo giá?')) return
-                      const tok = localStorage.getItem(TOKEN_KEY)
-                      const r = await fetch(`${API}/admin/auto-price`,{method:'POST',headers:{Authorization:`Bearer ${tok}`}})
-                      const d = await r.json()
-                      if(d.ok){ setSaved('✅ Đã cập nhật '+d.auto_updated+' đại lý với giá TB '+fmt(d.avg)+'đ'); setPriceStats(null) }
-                      else setSaved('⚠ '+d.detail)
-                    }}>⚡ Giá tự động theo TB thị trường</button>
-                    <button style={{...s.btn,marginTop:8,background:'#555'}} onClick={()=>setPriceStats(null)}>↻ Tải lại</button>
-                  </div>
-                )}
               </div>
             </div>
           )}
