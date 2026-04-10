@@ -138,6 +138,28 @@ export default function AgentPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   usePullToRefresh(useCallback(()=>{ if(token) fetchMe() },[token]), !!token)
 
+  // Poll trạng thái mỗi 30s — nếu bị khóa sẽ văng ra ngay
+  useEffect(() => {
+    if (!token) return
+    const id = setInterval(() => fetchMe(), 30000)
+    return () => clearInterval(id)
+  }, [token])
+
+  // WebSocket — lắng nghe event bị khóa, văng ra ngay lập tức
+  useEffect(() => {
+    if (!token || !agent) return
+    const ws = new WebSocket('wss://api.nns.id.vn/ws/prices')
+    ws.onmessage = (e) => {
+      try {
+        const msg = JSON.parse(e.data)
+        if (msg.type === 'agent_locked' && msg.agent_id === agent._id) {
+          setLocked(true)
+        }
+      } catch {}
+    }
+    return () => ws.close()
+  }, [token, agent?._id])
+
   const fetchMe = async () => {
     try {
       const r = await fetch(`${API}/agent/me`, {headers:{Authorization:`Bearer ${token}`}})
@@ -414,7 +436,7 @@ hdr: {padding:'calc(env(safe-area-inset-top) + 16px) 18px 10px',display:'flex',a
     {id:'price',  icon:'💰', label:'Quản lý giá',      color:'#1565c0', bg:'#e3f2fd'},
     {id:'shop',   icon:'🏪', label:'Quản lý cửa hàng', color:'#2e7d32', bg:'#e8f5e9'},
     {id:'orders', icon:'📊', label:'Giao dịch',         color:'#6a1b9a', bg:'#f3e5f5'},
-    {id:'profile',icon:'👤', label:'Trang cá nhân',     color:'#e65100', bg:'#fff3e0'},
+    {id:'profile',icon:'👤', label:'Xem trang cá nhân', color:'#e65100', bg:'#fff3e0'},
     {id:'info',   icon:'✏️', label:'Thông tin',          color:'#00695c', bg:'#e0f2f1'},
     {id:'ads',    icon:'📢', label:'Quảng cáo',          color:'#c62828', bg:'#ffebee'},
   ]
@@ -514,7 +536,9 @@ hdr: {padding:'calc(env(safe-area-inset-top) + 16px) 18px 10px',display:'flex',a
           {/* TILES GRID 2 cột */}
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
             {tiles.map(t=>(
-              <button key={t.id} onClick={()=>{setScreen(t.id);setSaved('');setError('')}}
+              <button key={t.id} onClick={()=>{
+                if(t.id==='profile'){ window.location.href=`/agent/${agent._id}`; return }
+                setScreen(t.id);setSaved('');setError('')}}
                 style={{background:t.bg,border:`2px solid ${t.color}22`,borderRadius:16,padding:'20px 16px',cursor:'pointer',textAlign:'left',transition:'transform .1s',aspectRatio:'1/0.9'}}>
                 <div style={{fontSize:28,marginBottom:8}}>{t.icon}</div>
                 <div style={{fontWeight:700,fontSize:14,color:t.color,lineHeight:1.2}}>{t.label}</div>
@@ -545,18 +569,78 @@ hdr: {padding:'calc(env(safe-area-inset-top) + 16px) 18px 10px',display:'flex',a
             <div>
               {/* BLOCK 1: CẬP NHẬT GIÁ CHÍNH */}
               <div style={{...s.card,margin:'0 12px 12px'}}>
-                <div style={{fontWeight:700,fontSize:14,color:'#1565c0',marginBottom:12}}>💰 Giá mua chính</div>
-                <div style={{background:'#e3f2fd',borderRadius:10,padding:'10px 14px',marginBottom:14,fontSize:13,color:'#0d47a1'}}>
-                  Giá hiện tại: <b>{agent.price>0?fmt(agent.price)+'đ':'Chưa cập nhật'}</b>
+                {(()=>{
+                  const cur = parseInt(price)||agent.price||0
+                  const orig = agent.price||0
+                  const diff = price==='' ? 0 : cur - orig
+                  const clr = price==='' ? '#f9a825' : diff>0 ? '#2e7d32' : diff<0 ? '#c62828' : '#f9a825'
+                  return (
+                    <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:16}}>
+                      <div style={{fontWeight:700,fontSize:14,color:'#1565c0'}}>💰 Giá mua chính</div>
+                      {diff!==0 && (
+                        <div style={{fontSize:12,fontWeight:700,color:clr,background:diff>0?'#e8f5e9':'#ffebee',
+                          padding:'3px 10px',borderRadius:8,fontFamily:'monospace'}}>
+                          {diff>0?'▲ +':'▼ '}{Math.abs(diff).toLocaleString('vi-VN')}đ
+                        </div>
+                      )}
+                    </div>
+                  )
+                })()}
+                {/* Dòng giá lớn + nút +/- */}
+                {(()=>{
+                  const cur = parseInt(price)||agent.price||0
+                  const orig = agent.price||0
+                  const diff = price==='' ? 0 : cur - orig
+                  const clr = price==='' ? '#f9a825' : diff>0 ? '#2e7d32' : diff<0 ? '#c62828' : '#f9a825'
+                  return (
+                    <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:12,marginBottom:12}}>
+                      <button
+                        onClick={()=>setPrice(p=>String(Math.max(0,(parseInt(p)||agent.price||0)-100)))}
+                        style={{width:48,height:48,borderRadius:12,border:`2px solid ${clr}`,background:'#f5f5f5',
+                          color:clr,fontSize:24,fontWeight:700,cursor:'pointer',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center'}}>−</button>
+                      <div style={{flex:1,textAlign:'center'}}>
+                        <div style={{fontSize:32,fontWeight:800,fontFamily:'monospace',color:clr,letterSpacing:'-1px',lineHeight:1,transition:'color .2s'}}>
+                          {cur.toLocaleString('vi-VN')}
+                        </div>
+                        <div style={{fontSize:11,color:'#888',marginTop:4}}>đ/kg</div>
+                      </div>
+                      <button
+                        onClick={()=>setPrice(p=>String((parseInt(p)||agent.price||0)+100))}
+                        style={{width:48,height:48,borderRadius:12,border:`2px solid ${clr}`,background:'#f5f5f5',
+                          color:clr,fontSize:24,fontWeight:700,cursor:'pointer',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center'}}>+</button>
+                    </div>
+                  )
+                })()}
+                {/* Nút bút chì để nhập thủ công */}
+                <div style={{textAlign:'center',marginBottom:14}}>
+                  <button onClick={()=>{const v=prompt('Nhập giá cụ thể (đ/kg):');if(v&&!isNaN(v))setPrice(v)}}
+                    style={{background:'none',border:'1px solid #bbb',borderRadius:8,padding:'5px 14px',
+                      fontSize:12,color:'#666',cursor:'pointer',display:'inline-flex',alignItems:'center',gap:6}}>
+                    ✏️ Nhập tay
+                  </button>
                 </div>
-                <div style={{fontSize:12,color:'#888',marginBottom:4}}>Giá mới (đ/kg)</div>
-                <input style={s.inp} placeholder="VD: 125000" value={price} onChange={e=>setPrice(e.target.value)} type="number" inputMode="numeric"/>
                 <div style={{background:'#fff8e1',borderRadius:10,padding:'10px 14px',marginBottom:14,fontSize:12,color:'#e65100',display:'flex',gap:8}}>
                   <span>🔐</span><span>Cần xác nhận PIN để cập nhật giá</span>
                 </div>
-                <button style={s.btn} onClick={()=>requirePin(doUpdatePrice)} disabled={!price||loading}>
-                  💰 Cập nhật giá (yêu cầu PIN)
+                <button style={{...s.btn,
+                  background: (parseInt(price)||0) !== agent.price
+                    ? 'linear-gradient(135deg,#1565c0,#1976d2)'
+                    : 'linear-gradient(135deg,#555,#777)'
+                  }}
+                  onClick={()=>requirePin(doUpdatePrice)}
+                  disabled={loading}>
+                  {(parseInt(price)||0) !== agent.price ? '💰 Cập nhật giá (yêu cầu PIN)' : '✅ Tiếp tục giữ giá thu mua hiện tại'}
                 </button>
+                {avgPrice > 0 && (
+                  <button
+                    style={{...s.btn,marginTop:8,background:'linear-gradient(135deg,#00695c,#00897b)'}}
+                    onClick={()=>{
+                      setPrice(String(avgPrice))
+                      requirePin(()=>fetch(`${API}/agent/price`,{method:"PUT",headers:{"Content-Type":"application/json",Authorization:`Bearer ${token}`},body:JSON.stringify({price:avgPrice,note:""})}).then(r=>{if(r.ok){setSaved("✅ Đã cập nhật theo giá TB!");fetchMe();setPrice("")}}))
+                    }}>
+                    Cập nhật theo TB thị trường ({fmt(avgPrice)}đ)
+                  </button>
+                )}
               </div>
 
               {/* BLOCK 2: BẢNG GIÁ */}

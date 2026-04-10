@@ -1,5 +1,5 @@
 // NNS Service Worker — Cache Strategy
-const CACHE_NAME = 'nns-v9'
+const CACHE_NAME = 'nns-v10'
 const STATIC_ASSETS = [
   '/',
   '/index.html',
@@ -8,34 +8,22 @@ const STATIC_ASSETS = [
   '/icon-512.png',
 ]
 
-// ── Install: cache static assets ─────────────────────────
+// ── Install ───────────────────────────────────────────────
 self.addEventListener('install', (event) => {
-  console.log('[NNS SW] Installing...')
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(STATIC_ASSETS).catch((err) => {
-        // Icon chưa có thì bỏ qua, không fail cả SW
-        console.warn('[NNS SW] Some assets failed to cache:', err)
-      })
-    })
-  )
+  console.log('[NNS SW] Installing v10...')
   self.skipWaiting()
 })
 
-// ── Activate: xóa cache cũ ───────────────────────────────
+// ── Activate: xóa TOÀN BỘ cache cũ ─────────────────────
 self.addEventListener('activate', (event) => {
-  console.log('[NNS SW] Activating...')
+  console.log('[NNS SW] Activating, clearing all old caches...')
   event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(
-        keys
-          .filter((key) => key !== CACHE_NAME)
-          .map((key) => {
-            console.log('[NNS SW] Deleting old cache:', key)
-            return caches.delete(key)
-          })
-      )
-    ).then(() => self.clients.claim())
+    caches.keys()
+      .then((keys) => Promise.all(keys.map((key) => {
+        console.log('[NNS SW] Deleting cache:', key)
+        return caches.delete(key)
+      })))
+      .then(() => self.clients.claim())
   )
 })
 
@@ -48,36 +36,41 @@ self.addEventListener('fetch', (event) => {
   const { request } = event
   const url = new URL(request.url)
 
-  // Bỏ qua Chrome extension và non-http
   if (!request.url.startsWith('http')) return
 
-  // API calls → Network first, fallback offline message
+  // API calls → luôn network, không cache
   if (url.hostname === 'api.nns.id.vn') {
-    // POST/PUT/DELETE không cache
     if (request.method !== 'GET') {
       event.respondWith(fetch(request))
       return
     }
-    event.respondWith(networkFirst(request))
+    event.respondWith(fetch(request).catch(() =>
+      new Response(JSON.stringify({ error: 'offline' }), { status: 503 })
+    ))
     return
   }
 
-  // Static assets → Network first (tránh cache cũ gây crash)
+  // JS/CSS/Font → luôn network (không cache để tránh stale)
   if (request.destination === 'script' ||
       request.destination === 'style' ||
-      request.destination === 'image' ||
       request.destination === 'font') {
-    event.respondWith(networkFirst(request))
+    event.respondWith(fetch(request))
     return
   }
 
-  // Zalo callback → luôn network, không cache
+  // Ảnh → cache first
+  if (request.destination === 'image') {
+    event.respondWith(cacheFirst(request))
+    return
+  }
+
+  // Zalo callback
   if (url.pathname.startsWith('/auth/zalo')) {
     event.respondWith(fetch(request))
     return
   }
 
-  // Navigate (page load) → Network first, fallback to cached index.html
+  // Navigate → network first, fallback index.html
   if (request.mode === 'navigate') {
     event.respondWith(
       fetch(request).catch(() =>
@@ -87,11 +80,11 @@ self.addEventListener('fetch', (event) => {
     return
   }
 
-  // Default → Network first
-  event.respondWith(networkFirst(request))
+  // Default → network
+  event.respondWith(fetch(request))
 })
 
-// ── Helper: Cache first ───────────────────────────────────
+// ── Helper: Cache first (chỉ dùng cho ảnh) ──────────────
 async function cacheFirst(request) {
   const cached = await caches.match(request)
   if (cached) return cached
@@ -103,25 +96,7 @@ async function cacheFirst(request) {
     }
     return response
   } catch {
-    return new Response('Không có kết nối', { status: 503 })
-  }
-}
-
-// ── Helper: Network first ─────────────────────────────────
-async function networkFirst(request) {
-  try {
-    const response = await fetch(request)
-    if (response.ok && request.method === 'GET') {
-      const cache = await caches.open(CACHE_NAME)
-      cache.put(request, response.clone())
-    }
-    return response
-  } catch {
-    const cached = await caches.match(request)
-    return cached || new Response(
-      JSON.stringify({ error: 'offline', message: 'Không có kết nối internet' }),
-      { status: 503, headers: { 'Content-Type': 'application/json' } }
-    )
+    return new Response('Offline', { status: 503 })
   }
 }
 
@@ -166,14 +141,12 @@ self.addEventListener('push', function(event) {
   } catch(e) {
     data = { title: 'NNS Đại lý', body: event.data ? event.data.text() : 'Bạn có thông báo mới' }
   }
-
   const title = data.title || 'NNS Đại lý'
   const options = {
     body: data.body || data.message || '',
     icon: '/icon-agent-192.png',
     badge: '/icon-agent-192.png',
     vibrate: [200, 100, 200, 100, 200, 100, 200],
-    sound: '/notification.mp3',
     data: { url: data.url || '/agent' }
   }
   event.waitUntil(self.registration.showNotification(title, options))
@@ -181,7 +154,5 @@ self.addEventListener('push', function(event) {
 
 self.addEventListener('notificationclick', function(event) {
   event.notification.close()
-  event.waitUntil(
-    clients.openWindow(event.notification.data.url)
-  )
+  event.waitUntil(clients.openWindow(event.notification.data.url))
 })

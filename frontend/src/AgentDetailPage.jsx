@@ -104,9 +104,8 @@ export default function AgentDetailPage() {
     </>
   )
 
-  const latestPrice = agent.price_history?.length > 0
-    ? agent.price_history[agent.price_history.length - 1]
-    : null
+  const priceHist = (agent.daily_history?.length > 0 ? agent.daily_history : agent.price_history) || []
+  const latestPrice = priceHist.length > 0 ? priceHist[priceHist.length - 1] : null
 
   const TABS = [
     { id: 'info',     label: 'Thông tin',   icon: '📋' },
@@ -192,12 +191,12 @@ export default function AgentDetailPage() {
         <div style={{padding:'12px 12px 80px'}}>
           {tab === 'info' && (
             <div style={{display:'flex',flexDirection:'column',gap:10}}>
-              {agent.price_history && agent.price_history.length > 0 && (
+              {agent.price_history && priceHist.length > 0 && (
                 <div style={{display:'flex',flexDirection:'column',gap:10}}>
                   <div style={{background:'#fff',borderRadius:14,border:'1.5px solid var(--bdr)',padding:'12px 8px 8px'}}>
                     <div style={{fontSize:11,color:'var(--txt3)',marginBottom:6,paddingLeft:8}}>Biến động giá 30 lần gần nhất</div>
                     <ResponsiveContainer width="100%" height={130}>
-                      <LineChart data={[...agent.price_history].map(h => ({
+                      <LineChart data={[...priceHist].map(h => ({
                         price: h.price,
                         time: new Date((h.at+'').endsWith('Z')||(h.at+'').includes('+') ? h.at : h.at+'Z').toLocaleDateString('vi-VN',{day:'2-digit',month:'2-digit'})
                       }))}>
@@ -209,8 +208,8 @@ export default function AgentDetailPage() {
                       </LineChart>
                     </ResponsiveContainer>
                     <div style={{borderTop:'1px solid var(--bdr)',marginTop:4,paddingTop:6,paddingLeft:4,paddingRight:4}}>
-                      {[...agent.price_history].reverse().slice(0,3).map((h,i) => {
-                        const idx = agent.price_history.length - 1 - i
+                      {[...priceHist].reverse().slice(0,3).map((h,i) => {
+                        const idx = priceHist.length - 1 - i
                         const prev = agent.price_history[idx-1]
                         const change = prev ? h.price - prev.price : 0
                         return (
@@ -227,9 +226,9 @@ export default function AgentDetailPage() {
                           </div>
                         )
                       })}
-                      {agent.price_history.length > 3 && (
+                      {priceHist.length > 3 && (
                         <button onClick={()=>setTab('history')} style={{width:'100%',padding:'5px 0',border:'none',background:'none',color:'var(--green)',fontWeight:700,fontSize:12,cursor:'pointer',fontFamily:'inherit',textAlign:'left'}}>
-                          Xem thêm {agent.price_history.length-3} lần →
+                          Xem thêm {priceHist.length-3} lần →
                         </button>
                       )}
                     </div>
@@ -314,20 +313,22 @@ export default function AgentDetailPage() {
                   <div style={{fontSize:13}}>Đại lý chưa đăng sản phẩm nào</div>
                 </div>
               ) : (
-                <div style={{display:'flex',flexDirection:'column',gap:10}}>
+                <div style={{display:'grid',gridTemplateColumns:'repeat(2,1fr)',gap:10}}>
                   {agent.products.map((p, i) => (
-                    <div key={p.id || i} style={{background:'#fff',borderRadius:12,border:'1.5px solid var(--bdr)',padding:'14px 16px'}}>
-                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:8}}>
-                        <div style={{flex:1,minWidth:0}}>
-                          <div style={{fontWeight:700,fontSize:14,color:'var(--txt)'}}>{p.name}</div>
-                          <div style={{fontSize:11,color:p.category==='phan_bon'?'var(--green)':'var(--blue)',fontWeight:600,marginTop:3}}>
-                            {p.category === 'phan_bon' ? '🌱 Phân bón' : p.category === 'thuoc_bvtv' ? '🧪 Thuốc BVTV' : '📦 Khác'}
-                          </div>
-                          {p.description && <div style={{fontSize:12,color:'var(--txt3)',marginTop:5,lineHeight:1.5}}>{p.description}</div>}
+                    <div key={p.id || i} style={{background:'var(--surf)',border:'1px solid var(--bdr)',borderRadius:'var(--rs)',overflow:'hidden',display:'flex',flexDirection:'column',boxShadow:'0 2px 8px rgba(0,0,0,.04)'}}>
+                      <div style={{width:'100%',aspectRatio:'1/1',background:'var(--bg2)',display:'flex',alignItems:'center',justifyContent:'center',overflow:'hidden'}}>
+                        {p.image_url
+                          ? <img src={p.image_url} alt={p.name} style={{width:'100%',height:'100%',objectFit:'cover'}}/>
+                          : <span style={{fontSize:32,opacity:.3}}>📦</span>}
+                      </div>
+                      <div style={{padding:10,flex:1,display:'flex',flexDirection:'column',gap:4}}>
+                        <div style={{fontSize:13,fontWeight:600,color:'var(--txt)',lineHeight:1.4,display:'-webkit-box',WebkitLineClamp:2,WebkitBoxOrient:'vertical',overflow:'hidden',minHeight:36}}>{p.name}</div>
+                        <div style={{fontSize:11,color:'var(--txt3)'}}>
+                          {p.category === 'phan_bon' ? '🌱 Phân bón' : p.category === 'thuoc_bvtv' ? '🧪 Thuốc BVTV' : '📦 Khác'}
                         </div>
-                        <div style={{textAlign:'right',flexShrink:0}}>
-                          <div style={{fontSize:15,fontWeight:800,color:'var(--green)',fontFamily:'JetBrains Mono,monospace'}}>{fmt(p.price)}đ</div>
-                          <div style={{fontSize:11,color:'var(--txt3)',marginTop:2}}>/{p.unit}</div>
+                        <div style={{display:'flex',alignItems:'baseline',gap:2,marginTop:'auto'}}>
+                          <span style={{fontSize:15,fontWeight:800,color:'var(--yellow,#f9a825)'}}>{fmt(p.price)}đ</span>
+                          <span style={{fontSize:10,color:'var(--txt3)'}}>/{p.unit}</span>
                         </div>
                       </div>
                     </div>
@@ -339,11 +340,11 @@ export default function AgentDetailPage() {
 
           {tab === 'history' && (
             <div style={{display:'flex',flexDirection:'column',gap:10}}>
-              {agent.price_history && agent.price_history.length > 0 && (
+              {agent.price_history && priceHist.length > 0 && (
                 <div style={{background:'#fff',borderRadius:14,border:'1.5px solid var(--bdr)',padding:'12px 8px 4px'}}>
                   <div style={{fontSize:11,color:'var(--txt3)',marginBottom:6,paddingLeft:8}}>Biến động giá 30 lần gần nhất</div>
                   <ResponsiveContainer width="100%" height={130}>
-                    <LineChart data={[...agent.price_history].map(h => ({
+                    <LineChart data={[...priceHist].map(h => ({
                       price: h.price,
                       time: new Date((h.at+'').endsWith('Z')||(h.at+'').includes('+') ? h.at : h.at+'Z').toLocaleDateString('vi-VN',{day:'2-digit',month:'2-digit'})
                     }))}>
@@ -356,7 +357,7 @@ export default function AgentDetailPage() {
                   </ResponsiveContainer>
                 </div>
               )}
-              {(!agent.price_history || agent.price_history.length === 0) ? (
+              {(!agent.price_history || priceHist.length === 0) ? (
                 <div style={{textAlign:'center',padding:'48px 20px',color:'var(--txt3)'}}>
                   <div style={{fontSize:40,marginBottom:12}}>📈</div>
                   <div style={{fontWeight:600,fontSize:15,color:'var(--txt2)',marginBottom:6}}>Chưa có lịch sử</div>
@@ -365,12 +366,12 @@ export default function AgentDetailPage() {
               ) : (
                 <>
                 <div style={{background:'#fff',borderRadius:14,border:'1.5px solid var(--bdr)',overflow:'hidden'}}>
-                  {[...agent.price_history].reverse().map((h, i) => {
-                    const prev = agent.price_history[agent.price_history.length - 2 - i]
+                  {[...priceHist].reverse().map((h, i) => {
+                    const prev = agent.price_history[priceHist.length - 2 - i]
                     const change = prev ? h.price - prev.price : 0
                     return (
                       <div key={i} style={{display:'flex',alignItems:'center',gap:12,padding:'12px 16px',
-                        borderBottom: i < agent.price_history.length - 1 ? '1px solid var(--bdr)' : 'none',
+                        borderBottom: i < priceHist.length - 1 ? '1px solid var(--bdr)' : 'none',
                         background: i === 0 ? 'var(--green3)' : '#fff'}}>
                         <div style={{flex:1,minWidth:0}}>
                           <div style={{fontSize:14,fontWeight:700,fontFamily:'JetBrains Mono,monospace',color: i===0?'var(--green)':'var(--txt)'}}>

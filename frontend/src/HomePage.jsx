@@ -1,6 +1,6 @@
 
 
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import useSwipeBack from './useSwipeBack'
 import usePullToRefresh from './usePullToRefresh'
 import { useNavigate } from 'react-router-dom'
@@ -413,46 +413,78 @@ export default function HomePage() {
       .catch(() => {})
   }, [])
 
-  // Fetch danh sách đại lý
-  const loadAgents = useCallback(() => {
+  // Lưu vị trí vào ref — chỉ xin 1 lần duy nhất
+  const coordsRef = useRef(null)
+
+  const fetchAgentsByCoords = useCallback((lat = null, lng = null) => {
     setAgentsLoading(true)
-    const fetchAgents = (lat = null, lng = null) => {
-      const url = lat && lng ? `${API}/agents?lat=${lat}&lng=${lng}` : `${API}/agents`
-      fetch(url)
-        .then(r => r.ok ? r.json() : [])
-        .then(d => { setAgents(Array.isArray(d) ? d : []); setAgentsLoading(false) })
-        .catch(() => { setLocationErr('Không thể tải danh sách đại lý'); setAgentsLoading(false) })
+    const url = lat && lng ? `${API}/agents?lat=${lat}&lng=${lng}` : `${API}/agents`
+    fetch(url)
+      .then(r => r.ok ? r.json() : [])
+      .then(d => { setAgents(Array.isArray(d) ? d : []); setAgentsLoading(false) })
+      .catch(() => { setLocationErr('Không thể tải danh sách đại lý'); setAgentsLoading(false) })
+  }, [])
+
+  // Fetch danh sách đại lý — dùng lại vị trí đã có, không xin lại
+  const loadAgents = useCallback(() => {
+    if (coordsRef.current) {
+      fetchAgentsByCoords(coordsRef.current.lat, coordsRef.current.lng)
+    } else {
+      fetchAgentsByCoords()
     }
+  }, [fetchAgentsByCoords])
+
+  // Xin vị trí: ưu tiên dùng cache localStorage, chỉ xin lại nếu chưa có hoặc quá 7 ngày
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('nns_coords')
+      if (saved) {
+        const { lat, lng, ts } = JSON.parse(saved)
+        const age = Date.now() - ts
+        if (age < 7 * 24 * 60 * 60 * 1000) {
+          // Dùng lại vị trí đã lưu
+          coordsRef.current = { lat, lng }
+          fetchAgentsByCoords(lat, lng)
+          return
+        }
+      }
+    } catch {}
+    // Chưa có hoặc hết hạn → xin mới
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
-        pos => { fetchAgents(pos.coords.latitude, pos.coords.longitude) },
-        err => { console.warn('Geolocation error:', err); fetchAgents() },
-        { timeout: 5000, maximumAge: 86400000 }
+        pos => {
+          const lat = pos.coords.latitude
+          const lng = pos.coords.longitude
+          coordsRef.current = { lat, lng }
+          try { localStorage.setItem('nns_coords', JSON.stringify({ lat, lng, ts: Date.now() })) } catch {}
+          fetchAgentsByCoords(lat, lng)
+        },
+        err => { console.warn('Geolocation error:', err); fetchAgentsByCoords() },
+        { timeout: 5000, maximumAge: 0 }
       )
     } else {
-      fetchAgents()
+      fetchAgentsByCoords()
     }
   }, [])
-  useEffect(() => { loadAgents() }, [])
   
-  const validAgents = agents.filter(a => a.price > 0)
-  const AVG = validAgents.length > 0
-    ? Math.round(validAgents.reduce((s, a) => s + (a.price || 0), 0) / validAgents.length)
+  const validAgents = agents
+  const agentsWithPrice = agents.filter(a => a.price > 0)
+  const AVG = agentsWithPrice.length > 0
+    ? Math.round(agentsWithPrice.reduce((s, a) => s + (a.price || 0), 0) / agentsWithPrice.length)
     : 0
   const PREV = AVG
   const total = kg * AVG
   const diff  = 0
 
-  // Tính lịch sử AVG theo ngày từ price_history
+  // Tính lịch sử AVG theo ngày từ daily_history (1 entry/ngày)
   const domesticHistory = useMemo(() => {
-    const agentsWithHist = validAgents.filter(a => a.price_history && a.price_history.length > 0)
+    const agentsWithHist = agentsWithPrice.filter(a => (a.daily_history||a.price_history||[]).length > 0)
     if (agentsWithHist.length === 0) return []
-    // Gom tất cả entries theo ngày
     const byDate = {}
     agentsWithHist.forEach(a => {
-      a.price_history.forEach(h => {
-        const date = new Date((h.at+'').endsWith('Z')||(h.at+'').includes('+') ? h.at : h.at+'Z')
-        const key = date.toLocaleDateString('vi-VN', {day:'2-digit', month:'2-digit'})
+      const hist = a.daily_history || a.price_history || []
+      hist.forEach(h => {
+        const key = h.date || new Date((h.at+'').endsWith('Z')||(h.at+'').includes('+') ? h.at : h.at+'Z').toLocaleDateString('vi-VN', {day:'2-digit', month:'2-digit'})
         if (!byDate[key]) byDate[key] = []
         byDate[key].push(h.price)
       })
@@ -461,18 +493,18 @@ export default function HomePage() {
       time,
       price: Math.round(prices.reduce((s,p)=>s+p,0) / prices.length)
     })).slice(-30)
-  }, [validAgents])
+  }, [agentsWithPrice])
 
   // Inject giá trong nước vào coffeePrice
   useEffect(() => {
-    if (AVG > 0 && validAgents.length > 0) {
+    if (AVG > 0 && agentsWithPrice.length > 0) {
       // Tính AVG hôm qua từ price_history
       const yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1); yesterday.setHours(0,0,0,0)
-      const agentsWithHistory = validAgents.filter(a => a.price_history && a.price_history.length >= 2)
+      const agentsWithHistory = agentsWithPrice.filter(a => (a.daily_history||a.price_history||[]).length >= 2)
       let prevAVG = AVG
       if (agentsWithHistory.length > 0) {
         const prevPrices = agentsWithHistory.map(a => {
-          const hist = [...a.price_history].reverse()
+          const hist = [...(a.daily_history||a.price_history||[])].reverse()
           const prev = hist.find(h => new Date(h.at) < new Date())
           return prev ? prev.price : a.price
         })
@@ -807,8 +839,8 @@ export default function HomePage() {
                           <div className="ag-loc">📍 {a.address||a.loc||'Lâm Đồng'}{a.distance ? ` · ${a.distance}km` : ''}</div>
                         </div>
                         <div className="ag-prc">
-                          <div className={`ag-num ${c}`}>{a.price>0?fmt(a.price)+'đ':'—'}</div>
-                          {a.change!==0 && <div className={`ag-chg ${c}`}>{arrow}{fmt(Math.abs(a.change||0))}</div>}
+                          <div className={a.price>0?`ag-num ${c}`:'ag-num tag-flat'}>{a.price>0?fmt(a.price)+'đ':'Chưa báo giá'}</div>
+                          {a.price>0 && a.change!==0 && <div className={`ag-chg ${c}`}>{arrow}{fmt(Math.abs(a.change||0))}</div>}
                         </div>
                       </div>
                     )
@@ -848,8 +880,8 @@ export default function HomePage() {
                           <div className="ag-loc">📍 {a.address||a.loc||'Lâm Đồng'}{a.distance ? ` · ${a.distance}km` : ''}</div>
                         </div>
                         <div className="ag-prc">
-                          <div className={`ag-num ${c}`}>{a.price>0?fmt(a.price)+'đ':'—'}</div>
-                          {a.change!==0 && <div className={`ag-chg ${c}`}>{arrow}{fmt(Math.abs(a.change||0))}</div>}
+                          <div className={a.price>0?`ag-num ${c}`:'ag-num tag-flat'}>{a.price>0?fmt(a.price)+'đ':'Chưa báo giá'}</div>
+                          {a.price>0 && a.change!==0 && <div className={`ag-chg ${c}`}>{arrow}{fmt(Math.abs(a.change||0))}</div>}
                         </div>
                       </div>
                     )
