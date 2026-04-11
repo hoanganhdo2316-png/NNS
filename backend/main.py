@@ -85,8 +85,6 @@ VAPID_PRIVATE_KEY = "5UTljMfDeBNbWzfJNpsIITHnaA9JyyNibM9Sr53W9lE"
 VAPID_CLAIMS = {"sub": "mailto:admin@nns.id.vn"}
 scheduler = AsyncIOScheduler()
 
-# Zalo OAuth config
-
 # 5. Auth config
 SECRET_KEY = os.getenv("SECRET_KEY", "agribot-secret-key-2026")
 ALGORITHM = "HS256"
@@ -168,8 +166,6 @@ async def register(req: RegisterRequest):
         "pin_hash": pwd_context.hash(req.pin) if req.pin else ""
     })
     return {"message": "Dang ky thanh cong!"}
-
-# ZALO LOGIN
 
 # LOGIN
 @app.post("/login")
@@ -986,15 +982,6 @@ async def admin_upload_catalog_image(file: UploadFile = File(...), admin=Depends
         f.write(data)
     return {"url": f"https://nns.id.vn/uploads/{filename}"}
 
-# -- FIREBASE OTP --
-
-
-
-# ── ZALO LOGIN V2 (frontend gọi Zalo Graph API) ──────────
-    return {"access_token": access_token}
-
-    return {"access_token": token, "ho_ten": user.get("ho_ten") or req.name}
-
 # ── REFRESH TOKEN ──────────────────────────────────────
 @app.post("/auth/refresh")
 async def refresh_token(req: dict):
@@ -1024,7 +1011,6 @@ async def refresh_token(req: dict):
     except JWTError:
         raise HTTPException(status_code=401, detail="Invalid or expired refresh token")
 
-# -- USER UPDATE PROFILE (sau OTP verify) --
 @app.put("/user/update-profile")
 async def update_profile(req: dict, current_user=Depends(get_current_user)):
     phone = current_user.get("sub") or current_user.get("so_dien_thoai")

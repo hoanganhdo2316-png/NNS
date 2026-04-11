@@ -148,32 +148,181 @@ function CoffeePriceDisplay({ data, loading, usdVnd, vcbAt, tab, onRefresh, dome
   )
 }
 
-function ShopTab({ agents }) {
-  const products = agents.flatMap(a => (a.products || []).map(p => ({...p, agentName: a.name, agentId: a._id})))
-  if (products.length === 0) return <div className="fu d1" style={{textAlign:'center', padding:40, color:'var(--txt3)'}}>Chưa có mặt hàng nào được đăng.</div>
-  
+function ProductDetailSheet({ product, onClose }) {
+  const navigate = useNavigate()
+
+  useEffect(() => {
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = '' }
+  }, [])
+
+  const phone = product.agentPhone || ''
+  const zalo  = product.agentZalo || product.agentPhone2 || phone
+
   return (
-    <div className="grid-shop fu d1">
-      {products.map((p, i) => (
-        <div key={p.id || i} className="product-card">
-          <div className="product-img-wrap">
-            {p.image_url ? (
-              <img src={p.image_url} alt={p.name} className="product-img" />
-            ) : (
-              <div className="product-img-placeholder">📦</div>
-            )}
+    <>
+      <div onClick={onClose} style={{position:'fixed',inset:0,background:'rgba(0,0,0,.5)',zIndex:1000,animation:'fadeIn .2s ease'}}/>
+      <div style={{
+        position:'fixed',bottom:0,left:0,right:0,zIndex:1001,
+        background:'var(--surf)',borderRadius:'20px 20px 0 0',
+        maxHeight:'92dvh',overflowY:'auto',
+        animation:'slideUp .3s cubic-bezier(.22,1,.36,1)',
+        paddingBottom:'calc(80px + env(safe-area-inset-bottom))'
+      }}>
+        {/* Handle */}
+        <div style={{display:'flex',justifyContent:'center',padding:'12px 0 4px',position:'sticky',top:0,background:'var(--surf)',zIndex:1}}>
+          <div style={{width:40,height:4,background:'var(--bdr)',borderRadius:2}}/>
+        </div>
+        <button onClick={onClose} style={{
+          position:'absolute',top:10,right:14,width:32,height:32,borderRadius:'50%',
+          background:'var(--bg2)',border:'none',cursor:'pointer',fontSize:15,
+          display:'flex',alignItems:'center',justifyContent:'center',color:'var(--txt2)',zIndex:2
+        }}>✕</button>
+
+        {/* Image */}
+        <div style={{width:'100%',aspectRatio:'1/1',background:'var(--bg2)',overflow:'hidden',maxHeight:340,display:'flex',alignItems:'center',justifyContent:'center'}}>
+          {product.image_url
+            ? <img src={product.image_url} alt={product.name} style={{width:'100%',height:'100%',objectFit:'cover'}}/>
+            : <div style={{fontSize:72,opacity:.2}}>📦</div>
+          }
+        </div>
+
+        <div style={{padding:'16px 16px 8px'}}>
+          {/* Price */}
+          <div style={{fontSize:28,fontWeight:800,color:'var(--yellow)',fontFamily:"'JetBrains Mono',monospace",lineHeight:1,marginBottom:8}}>
+            {product.price.toLocaleString('vi-VN')}đ
+            <span style={{fontSize:13,fontWeight:400,color:'var(--txt3)',marginLeft:5}}>/{product.unit}</span>
           </div>
-          <div className="product-info">
-            <div className="product-name">{p.name}</div>
-            <div className="product-agent">{p.agentName}</div>
-            <div className="product-bottom">
-              <div className="product-price">{fmt(p.price)}đ</div>
-              <div className="product-unit">/{p.unit}</div>
+
+          {/* Name */}
+          <div style={{fontSize:17,fontWeight:700,color:'var(--txt)',lineHeight:1.45,marginBottom:10}}>
+            {product.name}
+          </div>
+
+          {/* Category */}
+          {product.category && (
+            <span style={{
+              display:'inline-block',padding:'3px 12px',marginBottom:14,
+              background:'var(--green3)',color:'var(--green)',
+              borderRadius:20,fontSize:12,fontWeight:600,border:'1px solid var(--bdr)'
+            }}>
+              {product.category}
+            </span>
+          )}
+
+          {/* Description */}
+          {product.description ? (
+            <div style={{
+              fontSize:14,color:'var(--txt2)',lineHeight:1.75,
+              background:'var(--bg2)',borderRadius:10,padding:'12px 14px',marginBottom:16,
+              borderLeft:'3px solid var(--green3)'
+            }}>
+              {product.description}
             </div>
+          ) : (
+            <div style={{fontSize:13,color:'var(--txt3)',fontStyle:'italic',marginBottom:16}}>Chưa có mô tả sản phẩm.</div>
+          )}
+
+          <div style={{height:1,background:'var(--bdr)',margin:'4px 0 14px'}}/>
+
+          {/* Seller */}
+          <div style={{fontSize:11,color:'var(--txt3)',fontWeight:600,letterSpacing:.5,textTransform:'uppercase',marginBottom:8}}>Người bán</div>
+          <div style={{display:'flex',alignItems:'center',gap:12}}>
+            <div style={{
+              width:48,height:48,flexShrink:0,borderRadius:'50%',
+              background:'var(--green3)',border:'2px solid var(--bdr)',
+              display:'flex',alignItems:'center',justifyContent:'center',fontSize:22
+            }}>🏪</div>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontSize:15,fontWeight:700,color:'var(--txt)'}}>{product.agentName}</div>
+              {product.agentAddress && (
+                <div style={{fontSize:12,color:'var(--txt3)',marginTop:3,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
+                  📍 {product.agentAddress}
+                </div>
+              )}
+            </div>
+            <button
+              onClick={() => { onClose(); navigate(`/agent/${product.agentId}`) }}
+              style={{
+                padding:'8px 14px',background:'var(--green3)',color:'var(--green)',
+                border:'1.5px solid var(--green)',borderRadius:8,
+                fontSize:12,fontWeight:700,cursor:'pointer',whiteSpace:'nowrap',flexShrink:0
+              }}
+            >Xem shop ›</button>
           </div>
         </div>
-      ))}
+
+        {/* Action bar */}
+        <div style={{
+          position:'sticky',bottom:0,padding:'12px 16px 16px',
+          background:'var(--surf)',borderTop:'1px solid var(--bdr)',
+          display:'flex',gap:10,marginTop:8
+        }}>
+          {zalo && (
+            <a href={`https://zalo.me/${zalo.replace(/^0/,'84')}`} target="_blank" rel="noreferrer"
+              style={{
+                flex:1,padding:'14px',background:'#0068ff',color:'#fff',
+                borderRadius:12,fontSize:14,fontWeight:700,
+                textAlign:'center',textDecoration:'none',display:'flex',alignItems:'center',justifyContent:'center',gap:6
+              }}>💬 Zalo</a>
+          )}
+          {phone && (
+            <a href={`tel:${phone}`}
+              style={{
+                flex:1,padding:'14px',background:'var(--green)',color:'#fff',
+                borderRadius:12,fontSize:14,fontWeight:700,
+                textAlign:'center',textDecoration:'none',display:'flex',alignItems:'center',justifyContent:'center',gap:6
+              }}>📞 Gọi ngay</a>
+          )}
+        </div>
+      </div>
+    </>
+  )
+}
+
+function ShopTab({ agents }) {
+  const [selected, setSelected] = useState(null)
+  const products = agents.flatMap(a => (a.products || []).map(p => ({
+    ...p,
+    agentName: a.name,
+    agentId: a._id,
+    agentPhone: a.phone,
+    agentPhone2: a.phone2,
+    agentZalo: a.zalo,
+    agentAddress: a.address
+  })))
+
+  if (products.length === 0) return (
+    <div className="fu d1" style={{textAlign:'center', padding:40, color:'var(--txt3)'}}>
+      Chưa có mặt hàng nào được đăng.
     </div>
+  )
+
+  return (
+    <>
+      <div className="grid-shop fu d1">
+        {products.map((p, i) => (
+          <div key={p.id || i} className="product-card" onClick={() => setSelected(p)}>
+            <div className="product-img-wrap">
+              {p.image_url ? (
+                <img src={p.image_url} alt={p.name} className="product-img" />
+              ) : (
+                <div className="product-img-placeholder">📦</div>
+              )}
+            </div>
+            <div className="product-info">
+              <div className="product-name">{p.name}</div>
+              <div className="product-agent">🏪 {p.agentName}</div>
+              <div className="product-bottom">
+                <div className="product-price">{fmt(p.price)}đ</div>
+                <div className="product-unit">/{p.unit}</div>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+      {selected && <ProductDetailSheet product={selected} onClose={() => setSelected(null)} />}
+    </>
   )
 }
 
@@ -392,19 +541,6 @@ export default function HomePage() {
     setLoginLoading(false)
   }
 
-  // Zalo OAuth helpers
-  const _genVerifier = () => {
-    const arr = new Uint8Array(32)
-    crypto.getRandomValues(arr)
-    return btoa(String.fromCharCode(...arr)).replace(/\+/g,'-').replace(/\//g,'_').replace(/=/g,'')
-  }
-  const _genChallenge = async (v) => {
-    const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(v))
-    return btoa(String.fromCharCode(...new Uint8Array(digest))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=/g,'')
-  }
-
-
-
   // Fetch quảng cáo
   useEffect(() => {
     fetch(`${API}/ads`)
@@ -620,7 +756,8 @@ export default function HomePage() {
         .btn-bot:active{transform:scale(.92);}
 
         .grid-shop{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;}
-        .product-card{background:var(--surf);border:1px solid var(--bdr);border-radius:var(--rs);overflow:hidden;display:flex;flex-direction:column;box-shadow:0 2px 8px rgba(0,0,0,.04);}
+        .product-card{background:var(--surf);border:1px solid var(--bdr);border-radius:var(--rs);overflow:hidden;display:flex;flex-direction:column;box-shadow:0 2px 8px rgba(0,0,0,.04);cursor:pointer;transition:transform .15s,box-shadow .15s;-webkit-tap-highlight-color:transparent;}
+        .product-card:active{transform:scale(.96);box-shadow:none;}
         .product-img-wrap{width:100%;aspect-ratio:1/1;background:var(--bg2);display:flex;align-items:center;justify-content:center;overflow:hidden;}
         .product-img{width:100%;height:100%;object-fit:cover;}
         .product-img-placeholder{font-size:32px;opacity:.3;}
@@ -630,6 +767,8 @@ export default function HomePage() {
         .product-bottom{display:flex;align-items:baseline;gap:2px;margin-top:auto;}
         .product-price{font-size:15px;font-weight:800;color:var(--yellow);}
         .product-unit{font-size:10px;color:var(--txt3);}
+        @keyframes slideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
+        @keyframes fadeIn{from{opacity:0}to{opacity:1}}
 
         .noti-item{padding:12px;border-bottom:1px solid var(--bdr);display:flex;gap:12px;cursor:pointer;}
         .noti-item.unread{background:var(--green3);}
