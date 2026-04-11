@@ -28,7 +28,6 @@ export default function AgentDetailPage() {
   const [following, setFollowing] = useState(false)
   const [followers, setFollowers] = useState(0)
   const [followLoading, setFollowLoading] = useState(false)
-  const [selectedProduct, setSelectedProduct] = useState(null)
 
   useEffect(() => {
     if (!id) { setError('Không tìm thấy đại lý'); setLoading(false); return }
@@ -59,25 +58,10 @@ export default function AgentDetailPage() {
       --txt:#1a2e1a;--txt2:#4a6e4a;--txt3:#8aaa8a;
       --green:#2e7d32;--green2:#43a047;--green3:#e8f5e9;
       --red:#c62828;--red2:#ffebee;
-      --yellow:#e65100;
       --blue:#1565c0;--blue2:#e3f2fd;
       --r:14px;--rs:10px;
     }
     html,body{background:var(--bg);color:var(--txt);font-family:'Be Vietnam Pro',sans-serif;min-height:100dvh;}
-    .grid-shop{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;}
-    .product-card{background:var(--surf);border:1px solid var(--bdr);border-radius:var(--rs);overflow:hidden;display:flex;flex-direction:column;box-shadow:0 2px 8px rgba(0,0,0,.04);cursor:pointer;transition:transform .15s;-webkit-tap-highlight-color:transparent;}
-    .product-card:active{transform:scale(.96);}
-    .product-img-wrap{width:100%;aspect-ratio:1/1;background:var(--bg2);display:flex;align-items:center;justify-content:center;overflow:hidden;}
-    .product-img{width:100%;height:100%;object-fit:cover;}
-    .product-img-ph{font-size:32px;opacity:.3;}
-    .product-info{padding:10px;flex:1;display:flex;flex-direction:column;gap:4px;}
-    .product-name{font-size:13px;font-weight:600;color:var(--txt);line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:36px;}
-    .product-cat{font-size:11px;color:var(--txt3);}
-    .product-bottom{display:flex;align-items:baseline;gap:2px;margin-top:auto;}
-    .product-price{font-size:15px;font-weight:800;color:var(--yellow);}
-    .product-unit{font-size:10px;color:var(--txt3);}
-    @keyframes slideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
-    @keyframes fadeIn{from{opacity:0}to{opacity:1}}
   `
 
   const doFollow = async () => {
@@ -330,21 +314,20 @@ export default function AgentDetailPage() {
                   <div style={{fontSize:13}}>Đại lý chưa đăng sản phẩm nào</div>
                 </div>
               ) : (
-                <div className="grid-shop">
+                <div style={{display:'flex',flexDirection:'column',gap:10}}>
                   {agent.products.map((p, i) => (
-                    <div key={p.id || i} className="product-card" onClick={() => setSelectedProduct(p)}>
-                      <div className="product-img-wrap">
-                        {p.image_url
-                          ? <img src={p.image_url} alt={p.name} className="product-img"/>
-                          : <div className="product-img-ph">📦</div>
-                        }
-                      </div>
-                      <div className="product-info">
-                        <div className="product-name">{p.name}</div>
-                        <div className="product-cat">{p.category}</div>
-                        <div className="product-bottom">
-                          <div className="product-price">{fmt(p.price)}đ</div>
-                          <div className="product-unit">/{p.unit}</div>
+                    <div key={p.id || i} style={{background:'#fff',borderRadius:12,border:'1.5px solid var(--bdr)',padding:'14px 16px'}}>
+                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:8}}>
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{fontWeight:700,fontSize:14,color:'var(--txt)'}}>{p.name}</div>
+                          <div style={{fontSize:11,color:p.category==='phan_bon'?'var(--green)':'var(--blue)',fontWeight:600,marginTop:3}}>
+                            {p.category === 'phan_bon' ? '🌱 Phân bón' : p.category === 'thuoc_bvtv' ? '🧪 Thuốc BVTV' : '📦 Khác'}
+                          </div>
+                          {p.description && <div style={{fontSize:12,color:'var(--txt3)',marginTop:5,lineHeight:1.5}}>{p.description}</div>}
+                        </div>
+                        <div style={{textAlign:'right',flexShrink:0}}>
+                          <div style={{fontSize:15,fontWeight:800,color:'var(--green)',fontFamily:'JetBrains Mono,monospace'}}>{fmt(p.price)}đ</div>
+                          <div style={{fontSize:11,color:'var(--txt3)',marginTop:2}}>/{p.unit}</div>
                         </div>
                       </div>
                     </div>
@@ -412,120 +395,6 @@ export default function AgentDetailPage() {
           )}
         </div>
       </div>
-
-      {selectedProduct && (
-        <>
-          <div onClick={() => setSelectedProduct(null)}
-            style={{position:'fixed',inset:0,background:'rgba(0,0,0,.5)',zIndex:1000,animation:'fadeIn .2s ease'}}/>
-          <div style={{
-            position:'fixed',bottom:0,left:0,right:0,zIndex:1001,
-            background:'var(--surf)',borderRadius:'20px 20px 0 0',
-            maxHeight:'92dvh',overflowY:'auto',
-            animation:'slideUp .3s cubic-bezier(.22,1,.36,1)',
-            paddingBottom:'calc(24px + env(safe-area-inset-bottom))'
-          }}>
-            {/* Handle */}
-            <div style={{display:'flex',justifyContent:'center',padding:'12px 0 4px',position:'sticky',top:0,background:'var(--surf)',zIndex:1}}>
-              <div style={{width:40,height:4,background:'var(--bdr)',borderRadius:2}}/>
-            </div>
-            <button onClick={() => setSelectedProduct(null)} style={{
-              position:'absolute',top:10,right:14,width:32,height:32,borderRadius:'50%',
-              background:'var(--bg2)',border:'none',cursor:'pointer',fontSize:15,
-              display:'flex',alignItems:'center',justifyContent:'center',color:'var(--txt2)',zIndex:2
-            }}>✕</button>
-
-            {/* Image */}
-            <div style={{width:'100%',aspectRatio:'1/1',background:'var(--bg2)',overflow:'hidden',maxHeight:340,display:'flex',alignItems:'center',justifyContent:'center'}}>
-              {selectedProduct.image_url
-                ? <img src={selectedProduct.image_url} alt={selectedProduct.name} style={{width:'100%',height:'100%',objectFit:'cover'}}/>
-                : <div style={{fontSize:72,opacity:.2}}>📦</div>
-              }
-            </div>
-
-            <div style={{padding:'16px 16px 8px'}}>
-              {/* Price */}
-              <div style={{fontSize:28,fontWeight:800,color:'var(--yellow)',fontFamily:"'JetBrains Mono',monospace",lineHeight:1,marginBottom:8}}>
-                {selectedProduct.price.toLocaleString('vi-VN')}đ
-                <span style={{fontSize:13,fontWeight:400,color:'var(--txt3)',marginLeft:5}}>/{selectedProduct.unit}</span>
-              </div>
-
-              {/* Name */}
-              <div style={{fontSize:17,fontWeight:700,color:'var(--txt)',lineHeight:1.45,marginBottom:10}}>
-                {selectedProduct.name}
-              </div>
-
-              {/* Category */}
-              {selectedProduct.category && (
-                <span style={{
-                  display:'inline-block',padding:'3px 12px',marginBottom:14,
-                  background:'var(--green3)',color:'var(--green)',
-                  borderRadius:20,fontSize:12,fontWeight:600,border:'1px solid var(--bdr)'
-                }}>
-                  {selectedProduct.category}
-                </span>
-              )}
-
-              {/* Description */}
-              {selectedProduct.description ? (
-                <div style={{
-                  fontSize:14,color:'var(--txt2)',lineHeight:1.75,
-                  background:'var(--bg2)',borderRadius:10,padding:'12px 14px',marginBottom:16,
-                  borderLeft:'3px solid var(--green3)'
-                }}>
-                  {selectedProduct.description}
-                </div>
-              ) : (
-                <div style={{fontSize:13,color:'var(--txt3)',fontStyle:'italic',marginBottom:16}}>Chưa có mô tả sản phẩm.</div>
-              )}
-
-              <div style={{height:1,background:'var(--bdr)',margin:'4px 0 14px'}}/>
-
-              {/* Seller */}
-              <div style={{fontSize:11,color:'var(--txt3)',fontWeight:600,letterSpacing:.5,textTransform:'uppercase',marginBottom:8}}>Người bán</div>
-              <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:16}}>
-                <div style={{
-                  width:48,height:48,flexShrink:0,borderRadius:'50%',
-                  background:'var(--green3)',border:'2px solid var(--bdr)',
-                  display:'flex',alignItems:'center',justifyContent:'center',fontSize:22
-                }}>🏪</div>
-                <div style={{flex:1,minWidth:0}}>
-                  <div style={{fontSize:15,fontWeight:700,color:'var(--txt)'}}>{agent.name}</div>
-                  {agent.address && (
-                    <div style={{fontSize:12,color:'var(--txt3)',marginTop:3,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
-                      📍 {agent.address}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* Action bar */}
-            <div style={{
-              position:'sticky',bottom:0,padding:'12px 16px 16px',
-              background:'var(--surf)',borderTop:'1px solid var(--bdr)',
-              display:'flex',gap:10
-            }}>
-              {(agent.zalo || agent.phone) && (
-                <a href={`https://zalo.me/${(agent.zalo || agent.phone).replace(/^0/,'84')}`}
-                  target="_blank" rel="noreferrer"
-                  style={{
-                    flex:1,padding:'14px',background:'#0068ff',color:'#fff',
-                    borderRadius:12,fontSize:14,fontWeight:700,
-                    textAlign:'center',textDecoration:'none',display:'flex',alignItems:'center',justifyContent:'center',gap:6
-                  }}>💬 Zalo</a>
-              )}
-              {agent.phone && (
-                <a href={`tel:${agent.phone}`}
-                  style={{
-                    flex:1,padding:'14px',background:'var(--green)',color:'#fff',
-                    borderRadius:12,fontSize:14,fontWeight:700,
-                    textAlign:'center',textDecoration:'none',display:'flex',alignItems:'center',justifyContent:'center',gap:6
-                  }}>📞 Gọi ngay</a>
-              )}
-            </div>
-          </div>
-        </>
-      )}
     </>
   )
 }
