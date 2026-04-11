@@ -66,10 +66,10 @@ export default function AgentPage() {
   const [agent, setAgent] = useState(null)
   const [screen, setScreen] = useState('login')
   const [locked, setLocked] = useState(false)
-  const [splash, setSplash] = useState(false)
+  const [splash, setSplash] = useState(true)
 
   useEffect(() => {
-    const t = setTimeout(() => setSplash(false), 0)
+    const t = setTimeout(() => setSplash(false), 1500)
     return () => clearTimeout(t)
   }, [])
 
