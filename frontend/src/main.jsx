@@ -14,7 +14,6 @@ ReactDOM.createRoot(document.getElementById('root')).render(
     <BrowserRouter>
       <Routes>
         <Route path="/" element={<HomePage />} />
-        <Route path="/auth/zalo/callback" element={<HomePage />} />
         <Route path="/chat" element={<App />} />
         <Route path="/agent" element={<AgentPage />} />
         <Route path="/agent/:id" element={<AgentDetailPage />} />
