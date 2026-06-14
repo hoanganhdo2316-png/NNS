@@ -3,3 +3,9 @@ backend/venv/
 **/__pycache__/
 .env
 frontend/node_modules/
+backend/nohup.out
+nohup.out
+uploads/
+*.bak
+structure.txt
+frontend/dist/

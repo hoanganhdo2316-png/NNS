@@ -632,14 +632,11 @@ export default function HomePage() {
     if (AVG > 0 && validAgents.length > 0) {
       // Tính AVG hôm qua từ price_history
       const yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1); yesterday.setHours(0,0,0,0)
-      const agentsWithHistory = validAgents.filter(a => a.price_history && a.price_history.length >= 2)
+      // Tính prevAVG từ closing_price hôm qua
+      const agentsWithClosing = validAgents.filter(a => a.closing_price && a.closing_price > 0)
       let prevAVG = AVG
-      if (agentsWithHistory.length > 0) {
-        const prevPrices = agentsWithHistory.map(a => {
-          const hist = [...a.price_history].reverse()
-          const prev = hist.find(h => new Date(h.at) < new Date())
-          return prev ? prev.price : a.price
-        })
+      if (agentsWithClosing.length > 0) {
+        const prevPrices = agentsWithClosing.map(a => a.closing_price)
         prevAVG = Math.round(prevPrices.reduce((s,p) => s+p, 0) / prevPrices.length)
       }
       const change = AVG - prevAVG

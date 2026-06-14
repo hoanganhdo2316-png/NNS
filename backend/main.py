@@ -1,4 +1,6 @@
 import os
+import json as _json
+from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 VN_TZ = ZoneInfo('Asia/Ho_Chi_Minh')
@@ -338,6 +340,88 @@ async def get_coffee_price():
 # AGENTS - lấy danh sách đại lý, sort theo khoảng cách nếu có tọa độ
 import math
 
+PRICES_FILE = Path("/root/nns-video/assets/prices_extracted.json")
+
+@app.get("/market-prices")
+async def get_market_prices():
+    if not PRICES_FILE.exists():
+        raise HTTPException(status_code=503, detail="Chua co du lieu gia")
+    try:
+        with open(PRICES_FILE, "r", encoding="utf-8") as f:
+            raw = _json.load(f)
+    except Exception:
+        raise HTTPException(status_code=500, detail="Loi doc du lieu gia")
+
+    tinh = raw.get("trong_nuoc", {}).get("tinh", {})
+    return {
+        "ngay":     raw.get("ngay"),
+        "cap_nhat": raw.get("cap_nhat"),
+        "robusta": {
+            "gia":      raw["robusta"]["gia"],
+            "thay_doi": raw["robusta"]["thay_doi"],
+            "ky_han":   raw["robusta"]["ky_han"],
+            "don_vi":   "USD/tan",
+            "san":      "London ICE"
+        },
+        "arabica": {
+            "gia":      raw["arabica"]["gia"],
+            "thay_doi": raw["arabica"]["thay_doi"],
+            "ky_han":   raw["arabica"]["ky_han"],
+            "don_vi":   "USc/lb",
+            "san":      "New York ICE"
+        },
+        "trong_nuoc": {
+            "trung_binh":        raw["trong_nuoc"]["trung_binh"],
+            "thay_doi_tb":       raw["trong_nuoc"]["thay_doi_tb"],
+            "ho_tieu":           raw["trong_nuoc"].get("ho_tieu", 0),
+            "ty_gia":            raw["trong_nuoc"].get("ty_gia_usd_vnd", 0),
+            "dak_lak":           tinh.get("Dak Lak",  tinh.get("\u0110\u1eafk L\u1eafk",  {})).get("gia", 0),
+            "lam_dong":          tinh.get("Lam Dong", tinh.get("L\u00e2m \u0110\u1ed3ng", {})).get("gia", 0),
+            "gia_lai":           tinh.get("Gia Lai",  {}).get("gia", 0),
+            "dak_nong":          tinh.get("Dak Nong", tinh.get("\u0110\u1eafk N\u00f4ng",  {})).get("gia", 0),
+            "dak_lak_thay_doi":  tinh.get("Dak Lak",  tinh.get("\u0110\u1eafk L\u1eafk",  {})).get("thay_doi", 0),
+            "lam_dong_thay_doi": tinh.get("Lam Dong", tinh.get("L\u00e2m \u0110\u1ed3ng", {})).get("thay_doi", 0),
+            "gia_lai_thay_doi":  tinh.get("Gia Lai",  {}).get("thay_doi", 0),
+            "dak_nong_thay_doi": tinh.get("Dak Nong", tinh.get("\u0110\u1eafk N\u00f4ng",  {})).get("thay_doi", 0),
+        }
+    }
+
+
+
+def get_today_vn():
+    return datetime.now(VN_TZ).date()
+
+def get_closing_price(agent):
+    """Giá đóng cửa hôm qua - lấy từ closing_price_history"""
+    today = get_today_vn()
+    closing_history = agent.get("closing_price_history", [])
+    for entry in reversed(closing_history):
+        entry_date = datetime.fromisoformat(str(entry["date"])).date() if isinstance(entry["date"], str) else entry["date"]
+        if entry_date < today:
+            return entry["price"]
+    return None
+
+def get_today_price(agent):
+    """Giá hôm nay - chỉ trả về nếu đã cập nhật trong ngày hôm nay"""
+    today = get_today_vn()
+    updated_at = agent.get("updated_at")
+    if not updated_at:
+        return 0
+    if isinstance(updated_at, str):
+        updated_at = datetime.fromisoformat(updated_at)
+    if updated_at.tzinfo is None:
+        updated_at = updated_at.replace(tzinfo=VN_TZ)
+    if updated_at.astimezone(VN_TZ).date() == today:
+        return agent.get("price", 0)
+    return 0
+
+def calc_change(agent):
+    today_price = get_today_price(agent)
+    closing = get_closing_price(agent)
+    if today_price > 0 and closing:
+        return today_price - closing
+    return 0
+
 def haversine(lat1, lng1, lat2, lng2):
     R = 6371
     dlat = math.radians(lat2 - lat1)
@@ -350,14 +434,9 @@ async def get_agents(lat: float = None, lng: float = None, limit: int = 50):
     agents = await db["agents"].find({}, {"password_hash": 0, "pin_hash": 0}).to_list(200)
     for a in agents:
         a["_id"] = str(a["_id"])
-        # Tính change từ price_history thực tế
-        history = a.get("price_history", [])
-        if len(history) >= 2:
-            curr_price = history[-1]["price"]
-            prev_price = history[-2]["price"]
-            a["change"] = curr_price - prev_price
-        else:
-            a["change"] = 0
+        a["price"] = get_today_price(a)
+        a["change"] = calc_change(a)
+        a["closing_price"] = get_closing_price(a)
     if lat and lng:
         for a in agents:
             a["distance"] = round(haversine(lat, lng, a["lat"], a["lng"]), 1)
@@ -374,19 +453,22 @@ async def get_agents(lat: float = None, lng: float = None, limit: int = 50):
 from bson import ObjectId
 
 @app.get("/agents/{agent_id}")
-async def get_agent_detail(agent_id: str):
+async def get_agent_detail(agent_id: str, device_id: str = None):
     try:
         agent = await db["agents"].find_one({"_id": ObjectId(agent_id)}, {"password_hash": 0, "pin_hash": 0})
         if not agent:
             raise HTTPException(status_code=404, detail="Khong tim thay dai ly")
         agent["_id"] = str(agent["_id"])
         await db["agents"].update_one({"_id": ObjectId(agent_id)}, {"$inc": {"views": 1}})
-        # Tính change thực từ price_history
-        history = agent.get("price_history", [])
-        if len(history) >= 2:
-            agent["change"] = history[-1]["price"] - history[-2]["price"]
-        elif len(history) == 1:
-            agent["change"] = 0
+        if device_id:
+            user = await db["app_users"].find_one({"device_id": device_id}, {"phone": 1})
+            if user:
+                viewer = {"device_id": device_id, "phone": user.get("phone", ""), "at": datetime.now(VN_TZ)}
+                await db["agents"].update_one({"_id": ObjectId(agent_id)}, {"$pull": {"viewers": {"device_id": device_id}}})
+                await db["agents"].update_one({"_id": ObjectId(agent_id)}, {"$push": {"viewers": {"$each": [viewer], "$slice": -200}}})
+        agent["price"] = get_today_price(agent)
+        agent["change"] = calc_change(agent)
+        agent["closing_price"] = get_closing_price(agent)
         return agent
     except:
         raise HTTPException(status_code=400, detail="ID khong hop le")
@@ -517,12 +599,25 @@ async def agent_me(agent=Depends(get_current_agent)):
 async def agent_update_price(req: AgentPriceUpdate, agent=Depends(get_current_agent)):
     now = datetime.now(VN_TZ)
     history_entry = {"price": req.price, "note": req.note, "at": now}
+    today_str = now.date().isoformat()
     await db["agents"].update_one(
         {"_id": ObjectId(agent["_id"])},
         {
-            "$set": {"price": req.price, "updated_at": now},
+            "$set": {
+                "price": req.price,
+                "updated_at": now,
+                f"closing_price_by_date.{today_str}": req.price
+            },
             "$push": {"price_history": {"$each": [history_entry], "$slice": -30}}
         }
+    )
+    # Rebuild closing_price_history từ closing_price_by_date
+    updated_agent = await db["agents"].find_one({"_id": ObjectId(agent["_id"])})
+    cpbd = updated_agent.get("closing_price_by_date", {})
+    closing_history = sorted([{"date": d, "price": p} for d, p in cpbd.items()], key=lambda x: x["date"])
+    await db["agents"].update_one(
+        {"_id": ObjectId(agent["_id"])},
+        {"$set": {"closing_price_history": closing_history[-60:]}}
     )
     loc_str = f" | Tọa độ: {req.lat}, {req.lng}" if req.lat and req.lng else ""
     await db["agent_logs"].insert_one({
@@ -807,6 +902,67 @@ async def admin_upload_banner(file: UploadFile = File(...), admin=Depends(verify
         shutil.copyfileobj(file.file, f)
     return {"url": f"https://nns.id.vn/uploads/{filename}"}
 
+
+@app.get("/admin/dashboard")
+async def admin_dashboard(admin=Depends(verify_admin)):
+    from datetime import datetime, timedelta
+    today = datetime.now(VN_TZ).date()
+    today_start = datetime(today.year, today.month, today.day, tzinfo=VN_TZ)
+    
+    # 1. Agents cập nhật giá hôm nay
+    all_agents = await db["agents"].find({}, {"updated_at":1,"price":1,"daily_history":1,"closing_price_by_date":1}).to_list(200)
+    total_agents = len(all_agents)
+    updated_today = sum(1 for a in all_agents if get_today_price(a) > 0)
+    
+    # 2. Lịch sử tỷ lệ cập nhật 14 ngày
+    daily_update_rate = []
+    for i in range(13, -1, -1):
+        day = today - timedelta(days=i)
+        day_str = day.isoformat()
+        count = sum(1 for a in all_agents if a.get("closing_price_by_date", {}).get(day_str))
+        daily_update_rate.append({"date": day_str, "count": count, "total": total_agents})
+    
+    # 3. Users mới 24h
+    cutoff_24h = datetime.now(VN_TZ) - timedelta(hours=24)
+    all_users = await db["users"].find({}, {"created_at":1}).to_list(1000)
+    new_users_24h = 0
+    daily_users = []
+    for i in range(13, -1, -1):
+        day = today - timedelta(days=i)
+        day_str = day.isoformat()
+        count = 0
+        for u in all_users:
+            cat = u.get("created_at")
+            if cat:
+                if isinstance(cat, str): cat = datetime.fromisoformat(cat)
+                if cat.tzinfo is None: cat = cat.replace(tzinfo=VN_TZ)
+                if cat.astimezone(VN_TZ).date() == day: count += 1
+        daily_users.append({"date": day_str, "count": count})
+    for u in all_users:
+        cat = u.get("created_at")
+        if cat:
+            if isinstance(cat, str): cat = datetime.fromisoformat(cat)
+            if cat.tzinfo is None: cat = cat.replace(tzinfo=VN_TZ)
+            if cat.astimezone(VN_TZ) >= cutoff_24h: new_users_24h += 1
+    
+    # 4. Traffic theo giờ hôm nay
+    traffic_pipeline = [
+        {"$match": {"at": {"$gte": today_start}}},
+        {"$group": {"_id": {"$hour": {"date": "$at", "timezone": "Asia/Ho_Chi_Minh"}}, "count": {"$sum": 1}}},
+        {"$sort": {"_id": 1}}
+    ]
+    traffic_hourly = await db["traffic"].aggregate(traffic_pipeline).to_list(24)
+    
+    return {
+        "agents_total": total_agents,
+        "agents_updated_today": updated_today,
+        "daily_update_rate": daily_update_rate,
+        "users_total": len(all_users),
+        "new_users_24h": new_users_24h,
+        "daily_users": daily_users,
+        "traffic_hourly": traffic_hourly,
+    }
+
 @app.get("/admin/traffic")
 async def admin_get_traffic(admin=Depends(verify_admin)):
     pipeline = [
@@ -821,10 +977,6 @@ async def admin_get_traffic(admin=Depends(verify_admin)):
 async def track_visit():
     await db["traffic"].insert_one({"at": datetime.now(VN_TZ)})
     return {"ok": True}
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
 
 # ── AGENT LOGS ──────────────────────────────────────────
 @app.get("/agent/logs")
@@ -871,11 +1023,19 @@ async def admin_approve_unlock(nid: str, admin=Depends(verify_admin)):
     return {"ok": True}
 
 # ── FOLLOW / UNFOLLOW ──────────────────────────────────
+class FollowReq(BaseModel):
+    device_id: str = ""
+
 @app.post("/agents/{agent_id}/follow")
-async def follow_agent(agent_id: str, current_user=Depends(get_current_user)):
-    if not current_user:
-        raise HTTPException(status_code=401, detail="Chua dang nhap")
-    phone = current_user.get("so_dien_thoai")
+async def follow_agent(agent_id: str, req: FollowReq = FollowReq()):
+    # Lấy phone từ device_id
+    phone = ""
+    if req.device_id:
+        u = await db["app_users"].find_one({"device_id": req.device_id}, {"phone": 1})
+        if u:
+            phone = u.get("phone", "")
+    if not phone:
+        raise HTTPException(status_code=401, detail="Khong xac dinh duoc nguoi dung")
     agent = await db["agents"].find_one({"_id": ObjectId(agent_id)})
     if not agent:
         raise HTTPException(status_code=404, detail="Khong tim thay dai ly")
@@ -1027,3 +1187,199 @@ async def update_profile(req: dict, current_user=Depends(get_current_user)):
             {"$set": update_data}
         )
     return {"ok": True}
+
+# ===== APP ENDPOINTS =====
+@app.post("/app/register-device")
+async def register_device(data: dict):
+    device_id = data.get("device_id")
+    phone = data.get("phone")
+    if not device_id:
+        raise HTTPException(status_code=400, detail="Thiếu device_id")
+    existing = await db.app_users.find_one({"device_id": device_id})
+    if existing:
+        return {"status": "exists", "id": str(existing["_id"])}
+    result = await db.app_users.insert_one({
+        "device_id": device_id,
+        "phone": phone,
+        "role": "farmer",
+        "created_at": datetime.utcnow()
+    })
+    return {"status": "created", "id": str(result.inserted_id)}
+
+@app.get("/app/check-device/{device_id}")
+async def check_device(device_id: str):
+    user = await db.app_users.find_one({"device_id": device_id})
+    if not user:
+        raise HTTPException(status_code=404, detail="Chưa đăng ký")
+    return {"status": "ok", "phone": user.get("phone"), "role": user.get("role", "farmer")}
+
+@app.post("/auth/agent-login")
+async def app_agent_login(data: dict):
+    phone = data.get("phone")
+    password = data.get("password")
+    agent = await db["agents"].find_one({"phone": phone})
+    if not agent:
+        raise HTTPException(status_code=401, detail="Sai số điện thoại hoặc mật khẩu")
+    if agent.get("locked"):
+        raise HTTPException(status_code=403, detail="Tài khoản bị khóa")
+    if not pwd_context.verify(password, agent.get("password_hash", "")):
+        raise HTTPException(status_code=401, detail="Sai số điện thoại hoặc mật khẩu")
+    token = create_token({"sub": agent["phone"], "type": "agent"})
+    return {"token": token, "id": str(agent["_id"]), "name": agent.get("name", "")}
+
+@app.post("/auth/admin-login")
+async def app_admin_login(data: dict):
+    password = data.get("password")
+    hashed = hashlib.sha256(password.encode()).hexdigest()
+    if hashed != ADMIN_PASSWORD_HASH:
+        raise HTTPException(status_code=401, detail="Sai mật khẩu")
+    token = create_token({"sub": "admin", "type": "admin"})
+    return {"token": token}
+
+
+@app.get("/agent/customers")
+async def get_customers(current=Depends(get_current_agent)):
+    agent = await db["agents"].find_one({"_id": ObjectId(current["_id"])})
+    if not agent:
+        raise HTTPException(status_code=404, detail="Khong tim thay")
+    
+    followers = agent.get("followers", [])
+    viewers   = agent.get("viewers", [])
+
+    # Lấy thông tin user cho followers (lưu dạng phone string)
+    follower_list = []
+    for f in followers:
+        phone_str = f if isinstance(f, str) else f.get("phone", "")
+        if not phone_str:
+            continue
+        u = await db["app_users"].find_one({"phone": phone_str}, {"created_at": 1, "device_id": 1})
+        follower_list.append({
+            "phone": phone_str,
+            "device_id": u.get("device_id", "") if u else "",
+            "joined_at": u.get("created_at", "") if u else ""
+        })
+
+    # Viewers đã có phone từ lúc lưu
+    viewer_list = []
+    for v in reversed(viewers):
+        viewer_list.append({"phone": v.get("phone", ""), "device_id": v.get("device_id", ""), "at": v.get("at", "")})
+
+    return {"followers": follower_list, "viewers": viewer_list}
+
+
+import uuid, shutil
+from fastapi import UploadFile, File
+
+@app.post("/agent/upload-avatar")
+async def upload_avatar(file: UploadFile = File(...), agent=Depends(get_current_agent)):
+    ext = file.filename.split(".")[-1].lower()
+    if ext not in ["jpg", "jpeg", "png", "webp"]:
+        raise HTTPException(status_code=400, detail="Chi ho tro jpg/png/webp")
+    fname = f"avatar_{uuid.uuid4().hex[:8]}.{ext}"
+    path  = f"/root/NNS/uploads/{fname}"
+    with open(path, "wb") as f:
+        shutil.copyfileobj(file.file, f)
+    url = f"https://nns.id.vn/uploads/{fname}"
+    await db["agents"].update_one({"_id": ObjectId(agent["_id"])}, {"$set": {"avatar_url": url}})
+    return {"url": url}
+
+@app.post("/agent/upload-cover")
+async def upload_cover(file: UploadFile = File(...), agent=Depends(get_current_agent)):
+    ext = file.filename.split(".")[-1].lower()
+    if ext not in ["jpg", "jpeg", "png", "webp"]:
+        raise HTTPException(status_code=400, detail="Chi ho tro jpg/png/webp")
+    fname = f"cover_{uuid.uuid4().hex[:8]}.{ext}"
+    path  = f"/root/NNS/uploads/{fname}"
+    with open(path, "wb") as f:
+        shutil.copyfileobj(file.file, f)
+    url = f"https://nns.id.vn/uploads/{fname}"
+    await db["agents"].update_one({"_id": ObjectId(agent["_id"])}, {"$set": {"cover_url": url}})
+    return {"url": url}
+
+
+# ── POSTS ─────────────────────────────────────────────────────────────────────
+
+class PostCreateReq(BaseModel):
+    content: str
+
+@app.post("/agent/posts")
+async def create_post(req: PostCreateReq, agent=Depends(get_current_agent)):
+    if not req.content.strip():
+        raise HTTPException(status_code=400, detail="Noi dung khong duoc de trong")
+    post = {
+        "agent_id": agent["_id"],
+        "agent_name": agent.get("name", ""),
+        "agent_avatar": agent.get("avatar_url", ""),
+        "content": req.content.strip(),
+        "created_at": datetime.now(VN_TZ),
+        "likes": [],
+        "comments": [],
+    }
+    result = await db["posts"].insert_one(post)
+    post["_id"] = str(result.inserted_id)
+    post["created_at"] = post["created_at"].isoformat()
+    return post
+
+@app.get("/agent/{agent_id}/posts")
+async def get_agent_posts(agent_id: str):
+    posts = await db["posts"].find(
+        {"agent_id": agent_id},
+        {"_id": 1, "content": 1, "created_at": 1, "agent_name": 1, "agent_avatar": 1,
+         "likes": 1, "comments": 1}
+    ).sort("created_at", -1).limit(20).to_list(20)
+    for p in posts:
+        p["_id"] = str(p["_id"])
+        p["likes_count"] = len(p.get("likes", []))
+        p["comments_count"] = len(p.get("comments", []))
+        if "created_at" in p:
+            p["created_at"] = p["created_at"].isoformat()
+    return posts
+
+@app.post("/posts/{post_id}/like")
+async def like_post(post_id: str, device_id: str = None):
+    phone = ""
+    if device_id:
+        u = await db["app_users"].find_one({"device_id": device_id}, {"phone": 1})
+        if u:
+            phone = u.get("phone", "")
+    if not phone:
+        raise HTTPException(status_code=401, detail="Khong xac dinh duoc nguoi dung")
+    post = await db["posts"].find_one({"_id": ObjectId(post_id)})
+    if not post:
+        raise HTTPException(status_code=404, detail="Khong tim thay bai viet")
+    likes = post.get("likes", [])
+    if phone in likes:
+        await db["posts"].update_one({"_id": ObjectId(post_id)}, {"$pull": {"likes": phone}})
+        return {"liked": False, "likes_count": len(likes) - 1}
+    else:
+        await db["posts"].update_one({"_id": ObjectId(post_id)}, {"$addToSet": {"likes": phone}})
+        return {"liked": True, "likes_count": len(likes) + 1}
+
+@app.delete("/agent/posts/{post_id}")
+async def delete_post(post_id: str, agent=Depends(get_current_agent)):
+    result = await db["posts"].delete_one({
+        "_id": ObjectId(post_id), "agent_id": agent["_id"]
+    })
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Khong tim thay hoac khong co quyen xoa")
+    return {"ok": True}
+
+
+@app.get("/posts")
+async def get_all_posts(limit: int = 20, skip: int = 0):
+    posts = await db["posts"].find(
+        {"visibility": {"$ne": "private"}},
+        {"_id": 1, "content": 1, "created_at": 1, "agent_id": 1,
+         "agent_name": 1, "agent_avatar": 1, "likes": 1, "comments": 1}
+    ).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
+    for p in posts:
+        p["_id"] = str(p["_id"])
+        p["likes_count"] = len(p.get("likes", []))
+        p["comments_count"] = len(p.get("comments", []))
+        if "created_at" in p:
+            p["created_at"] = p["created_at"].isoformat()
+    return posts
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)

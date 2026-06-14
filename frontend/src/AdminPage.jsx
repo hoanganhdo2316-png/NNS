@@ -2,6 +2,7 @@ const toVN = s => s ? new Date((s+'').endsWith('Z')||(s+'').includes('+') ? s : 
 import { useState, useEffect, useCallback } from 'react'
 import { fetchWithAuth } from './fetchWithAuth'
 import Spinner from './Spinner'
+import AdminDashboard from './AdminDashboard'
 import useSwipeBack from './useSwipeBack'
 import usePullToRefresh from './usePullToRefresh'
 
@@ -30,6 +31,8 @@ const orange2 = '#fff3e0'
 const fmt = n => n?.toLocaleString('vi-VN') ?? '—'
 
 export default function AdminPage() {
+  const [isDesktop, setIsDesktop] = useState(window.innerWidth >= 900)
+  useEffect(() => { const h = () => setIsDesktop(window.innerWidth >= 900); window.addEventListener('resize', h); return () => window.removeEventListener('resize', h) }, [])
   const [token, setToken] = useState(localStorage.getItem(TOKEN_KEY))
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
@@ -227,13 +230,13 @@ export default function AdminPage() {
       fontWeight:600, fontSize:13, background:active?orange:orange2, color:active?'#fff':orange}),
     tag: (active) => ({padding:'3px 8px', borderRadius:6, fontSize:11, fontWeight:700,
       background:active?'#e8f5e9':'#ffebee', color:active?'#2e7d32':'#c62828'}),
+    sideBtn: (a) => ({display:'flex',alignItems:'center',gap:10,width:'100%',padding:'12px 20px',border:'none',cursor:'pointer',fontSize:14,fontWeight:a?700:400,color:a?'#fff':'rgba(255,255,255,.7)',background:a?'rgba(255,255,255,.18)':'transparent',borderLeft:a?'4px solid #fff':'4px solid transparent',transition:'all .15s',fontFamily:"'Be Vietnam Pro',sans-serif"}),
   }
 
   const tiles = [
     {id:'agents', icon:'🏪', label:'Đại lý', count:agents.length, color:'#e65100', bg:'#fff3e0'},
     {id:'users',  icon:'👥', label:'Người dùng', count:users.length, color:'#1565c0', bg:'#e3f2fd'},
     {id:'ads',    icon:'📢', label:'Quảng cáo', count:'', color:'#2e7d32', bg:'#e8f5e9'},
-    {id:'traffic',icon:'📊', label:'Traffic', count:'', color:'#00695c', bg:'#e0f2f1'},
     {id:'logs',   icon:'📜', label:'Nhật ký', count:logs.length, color:'#4a148c', bg:'#f3e5f5'},
     {id:'push',   icon:'🔔', label:'Gửi Push', count:'', color:'#d81b60', bg:'#fce4ec'},
     {id:'catalog', icon:'📦', label:'Danh mục SP', count:'', color:'#1565c0', bg:'#e3f2fd'},
@@ -269,11 +272,26 @@ export default function AdminPage() {
     </div>
   )
 
+  const notiCount = notifications.filter(n=>!n.read).length
   return (
-    <div style={s.wrap}>
+    <div style={{minHeight:'100dvh',display:isDesktop?'flex':'block',background:isDesktop?'#f5f0eb':'#fff8f0',fontFamily:"'Be Vietnam Pro',sans-serif"}}>
+      <div style={{width:240,flexShrink:0,background:'linear-gradient(180deg,#b34500,#e65100)',display:isDesktop?'flex':'none',flexDirection:'column',boxShadow:'4px 0 20px rgba(230,81,0,.2)',position:'sticky',top:0,height:'100vh',overflowY:'auto'}}>
+          <div style={{padding:'24px 20px',borderBottom:'1px solid rgba(255,255,255,.15)'}}>
+            <div style={{fontWeight:800,fontSize:18,color:'#fff'}}>🛡️ NNS Admin</div>
+            <div style={{fontSize:11,color:'rgba(255,255,255,.6)',marginTop:3}}>Trung tâm điều hành</div>
+          </div>
+          <div style={{flex:1,overflowY:'auto',padding:'8px 0'}}>
+            <button style={s.sideBtn(screen==='home')} onClick={()=>{setScreen('home');setSaved('')}}>🏠 <span>Tổng quan</span></button>
+            {tiles.map(t=>(<button key={t.id} style={s.sideBtn(screen===t.id||(screen==='agent_detail'&&t.id==='agents'))} onClick={()=>{setScreen(t.id);setSaved('')}}>{t.icon} <span>{t.label}{t.count!==''?` (${t.count})`:''}</span></button>))}
+          </div>
+          <div style={{padding:'16px 20px',borderTop:'1px solid rgba(255,255,255,.15)'}}>
+            <button onClick={logout} style={{width:'100%',padding:'10px',borderRadius:10,background:'rgba(255,255,255,.15)',border:'1px solid rgba(255,255,255,.3)',color:'#fff',cursor:'pointer',fontWeight:600,fontSize:13,fontFamily:"'Be Vietnam Pro',sans-serif"}}>🚪 Đăng xuất</button>
+          </div>
+        </div>
+      <div style={isDesktop?{flex:1,minHeight:'100vh',overflowY:'auto'}:{}}>
       <link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:wght@400;600;700;800&display=swap" rel="stylesheet"/>
 
-      <div style={s.hdr}>
+      {!isDesktop && <div style={s.hdr}>
         <div>
           <div style={{fontWeight:800,fontSize:17}}>🛡️ NNS Admin</div>
           <div style={{fontSize:11,opacity:.8,marginTop:2}}>Quản trị hệ thống</div>
@@ -295,9 +313,23 @@ export default function AdminPage() {
             Đăng xuất
           </button>
         </div>
-      </div>
-
-      {saved && <div style={{margin:'12px',color:'#2e7d32',fontSize:13,padding:'8px 12px',background:'#e8f5e9',borderRadius:8,fontWeight:600}}>{saved}</div>}
+      </div>}
+      {isDesktop && <div style={{background:'#fff',borderBottom:'1px solid #ffe0b2',padding:'0 28px',height:56,display:'flex',alignItems:'center',justifyContent:'space-between',position:'sticky',top:0,zIndex:50,boxShadow:'0 1px 6px rgba(230,81,0,.07)'}}><div style={{fontWeight:700,fontSize:15,color:'#e65100'}}>{screen==='home'?'🏠 Tổng quan':screen==='agent_detail'?`🏪 ${selectedAgent?.name}`:`${tiles.find(t=>t.id===screen)?.icon||''} ${tiles.find(t=>t.id===screen)?.label||''}`}</div><div style={{display:'flex',gap:8,alignItems:'center'}}>{saved&&<span style={{color:'#2e7d32',fontSize:13,padding:'5px 12px',background:'#e8f5e9',borderRadius:8,fontWeight:600}}>{saved}</span>}<button onClick={()=>setShowNoti(true)} style={{position:'relative',background:'#e65100',border:'none',color:'#fff',padding:'7px 13px',borderRadius:10,cursor:'pointer',fontSize:16}}>🔔{notiCount>0&&<span style={{position:'absolute',top:-4,right:-4,background:'#c62828',color:'#fff',borderRadius:'50%',width:18,height:18,fontSize:11,fontWeight:700,display:'flex',alignItems:'center',justifyContent:'center'}}>{notiCount}</span>}</button></div></div>}
+      {!isDesktop && (
+        <div style={{position:'fixed',bottom:0,left:0,right:0,background:'#fff',borderTop:'1.5px solid #ffe0b2',
+          display:'flex',zIndex:99,paddingBottom:'env(safe-area-inset-bottom)',boxShadow:'0 -2px 12px rgba(230,81,0,.08)'}}>
+          {[{id:'home',icon:'🏠',label:'Tổng quan'},...tiles].map(t=>(
+            <button key={t.id} onClick={()=>{setScreen(t.id);setSaved('')}}
+              style={{flex:1,padding:'8px 4px 6px',border:'none',background:'transparent',cursor:'pointer',
+                display:'flex',flexDirection:'column',alignItems:'center',gap:2}}>
+              <span style={{fontSize:18}}>{t.icon}</span>
+              <span style={{fontSize:9,fontWeight:screen===t.id?700:400,
+                color:screen===t.id?'#e65100':'#999'}}>{t.label}</span>
+            </button>
+          ))}
+        </div>
+      )}
+      {!isDesktop && saved && <div style={{margin:'12px',color:'#2e7d32',fontSize:13,padding:'8px 12px',background:'#e8f5e9',borderRadius:8,fontWeight:600}}>{saved}</div>}
 
       {/* NOTIFICATION MODAL */}
       {showNoti && (
@@ -341,40 +373,8 @@ export default function AdminPage() {
       )}
 
       {screen==='home' && (
-        <div style={{padding:'12px'}}>
-          {/* Stats */}
-          <div style={{background:'rgba(230,81,0,.08)',borderRadius:16,padding:'16px 20px',marginBottom:12,border:'1px solid #ffe0b2'}}>
-            <div style={{fontSize:11,color:orange,fontWeight:700,marginBottom:10,letterSpacing:.5}}>TỔNG QUAN HỆ THỐNG</div>
-            <div style={{display:'flex',justifyContent:'space-around',textAlign:'center'}}>
-              <div>
-                <div style={{fontSize:28,fontWeight:800,color:orange,fontFamily:'monospace'}}>{agents.length}</div>
-                <div style={{fontSize:11,color:'#888'}}>Đại lý</div>
-              </div>
-              <div style={{width:1,background:'#ffe0b2'}}/>
-              <div>
-                <div style={{fontSize:28,fontWeight:800,color:'#1565c0',fontFamily:'monospace'}}>{users.length}</div>
-                <div style={{fontSize:11,color:'#888'}}>Người dùng</div>
-              </div>
-              <div style={{width:1,background:'#ffe0b2'}}/>
-              <div>
-                <div style={{fontSize:28,fontWeight:800,color:'#6a1b9a',fontFamily:'monospace'}}>{logs.length}</div>
-                <div style={{fontSize:11,color:'#888'}}>Log</div>
-              </div>
-            </div>
-          </div>
-
-          {/* Tiles */}
-          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
-            {tiles.map(t=>(
-              <button key={t.id} onClick={()=>{setScreen(t.id);setSaved('')}}
-                style={{background:t.bg,border:`2px solid ${t.color}22`,borderRadius:16,
-                  padding:'20px 16px',cursor:'pointer',textAlign:'left',aspectRatio:'1/0.85'}}>
-                <div style={{fontSize:28,marginBottom:8}}>{t.icon}</div>
-                <div style={{fontWeight:700,fontSize:14,color:t.color}}>{t.label}</div>
-                {t.count!=='' && <div style={{fontSize:20,fontWeight:800,color:t.color,fontFamily:'monospace',marginTop:4}}>{t.count}</div>}
-              </button>
-            ))}
-          </div>
+        <div style={{padding: isDesktop?'0':'12px'}}>
+          <AdminDashboard agents={agents} users={users} logs={logs} orange={orange} API={API} TOKEN_KEY={TOKEN_KEY} REFRESH_KEY={REFRESH_KEY} fetchWithAuth={fetchWithAuth}/>
         </div>
       )}
 
@@ -685,5 +685,6 @@ export default function AdminPage() {
         </div>
       )}
     </div>
+  )      </div>
   )
 }
