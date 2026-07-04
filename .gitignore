@@ -9,3 +9,8 @@ uploads/
 *.bak
 structure.txt
 frontend/dist/
+landing/node_modules/
+landing/.next/
+landing/out/
+landing/tsconfig.tsbuildinfo
+*.bak_*

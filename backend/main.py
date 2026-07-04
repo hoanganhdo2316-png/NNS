@@ -4,6 +4,28 @@ from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 VN_TZ = ZoneInfo('Asia/Ho_Chi_Minh')
+
+import boto3
+from botocore.config import Config
+
+# Cloudflare R2 config
+R2_ACCOUNT_ID = "33bce04fa5d6adb49ddec23b1a38d3e4"
+R2_ACCESS_KEY_ID = "63920a77a2ed4b2790380571f1eedb6b"
+R2_SECRET_ACCESS_KEY = "5986fd87585bfddbc617989f6e94354c34f8e9471d7a52260b6f171f264efa2e"
+R2_BUCKET = "nnsvideo"
+R2_PUBLIC_URL = "https://videos.nns.id.vn"
+R2_ENDPOINT = f"https://{R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+
+def get_r2_client():
+    return boto3.client(
+        "s3",
+        endpoint_url=R2_ENDPOINT,
+        aws_access_key_id=R2_ACCESS_KEY_ID,
+        aws_secret_access_key=R2_SECRET_ACCESS_KEY,
+        config=Config(signature_version="s3v4"),
+        region_name="auto",
+    )
+
 from fastapi import FastAPI, HTTPException, Depends, WebSocket, WebSocketDisconnect, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
@@ -590,6 +612,242 @@ async def agent_register(req: AgentLoginRequest):
     await db["agents"].update_one({"phone": phone}, {"$set": {"password_hash": hashed}})
     token = create_token({"sub": phone, "type": "agent"})
     return {"access_token": token, "token_type": "bearer", "name": agent["name"]}
+
+# ===== Zalo Login (Farmer) =====
+FARMER_TOKEN_EXPIRE_MINUTES = 60 * 24 * 30  # 30 ngày
+
+class ZaloLoginRequest(BaseModel):
+    access_token: str
+
+async def get_current_farmer(token: str = Depends(oauth2_scheme)):
+    if not token:
+        raise HTTPException(status_code=401, detail="Chua dang nhap")
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        zalo_id = payload.get("sub")
+        if payload.get("type") != "farmer":
+            raise HTTPException(status_code=403, detail="Khong phai tai khoan nong dan")
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Token khong hop le")
+    farmer = await db["app_users"].find_one({"$or": [{"zalo_id": zalo_id}, {"apple_id": zalo_id}]})
+    if not farmer:
+        raise HTTPException(status_code=404, detail="Khong tim thay nguoi dung")
+    return farmer
+
+@app.get("/auth/me")
+async def auth_me(farmer=Depends(get_current_farmer)):
+    return {
+        "zalo_id": farmer.get("zalo_id"),
+        "name": farmer.get("name"),
+        "avatar": farmer.get("avatar"),
+        "phone": farmer.get("phone"),
+    }
+
+@app.post("/auth/zalo")
+async def auth_zalo(req: ZaloLoginRequest):
+    async with httpx.AsyncClient(timeout=8) as client:
+        resp = await client.get(
+            "https://graph.zalo.me/v2.0/me",
+            headers={"access_token": req.access_token},
+            params={"fields": "id,name,picture"}
+        )
+    data = resp.json()
+
+    if data.get("error"):
+        raise HTTPException(status_code=401, detail=f"Zalo token khong hop le: {data.get('message')}")
+
+    zalo_id = data.get("id")
+    if not zalo_id:
+        raise HTTPException(status_code=401, detail="Khong lay duoc Zalo ID")
+
+    name = data.get("name")
+    avatar = data.get("picture", {}).get("data", {}).get("url")
+
+    existing = await db["app_users"].find_one({"zalo_id": zalo_id})
+    is_new = existing is None
+
+    if is_new:
+        await db["app_users"].insert_one({
+            "zalo_id": zalo_id,
+            "name": name,
+            "avatar": avatar,
+            "phone": None,
+            "role": "farmer",
+            "created_at": datetime.now(VN_TZ),
+        })
+        saved_full_name = ""
+    else:
+        await db["app_users"].update_one(
+            {"zalo_id": zalo_id},
+            {"$set": {"avatar": avatar}}
+        )
+        saved_full_name = existing.get("full_name") or ""
+
+    token = create_token({"sub": zalo_id, "type": "farmer"}, expire_minutes=FARMER_TOKEN_EXPIRE_MINUTES)
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "name": name,
+        "full_name": saved_full_name,
+        "zalo_id": zalo_id,
+        "is_new_user": is_new,
+    }
+
+
+
+@app.post("/agent/zalo-login")
+async def agent_zalo_login(req: ZaloLoginRequest):
+    async with httpx.AsyncClient(timeout=8) as client:
+        resp = await client.get(
+            "https://graph.zalo.me/v2.0/me",
+            headers={"access_token": req.access_token},
+            params={"fields": "id,name,picture"}
+        )
+    data = resp.json()
+
+    if data.get("error"):
+        raise HTTPException(status_code=401, detail=f"Zalo token khong hop le: {data.get('message')}")
+
+    zalo_id = data.get("id")
+    if not zalo_id:
+        raise HTTPException(status_code=401, detail="Khong lay duoc Zalo ID")
+
+    name = data.get("name")
+    avatar = data.get("picture", {}).get("data", {}).get("url")
+
+    existing = await db["agents"].find_one({"zalo_id": zalo_id})
+    if not existing:
+        raise HTTPException(status_code=403, detail="Tai khoan dai ly chua duoc dang ky. Vui long lien he NNS.")
+
+    await db["agents"].update_one(
+        {"zalo_id": zalo_id},
+        {"$set": {"display_name": name, "avatar_url": avatar}}
+    )
+
+    token = create_token({"sub": zalo_id, "type": "agent"}, expire_minutes=FARMER_TOKEN_EXPIRE_MINUTES)
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "name": name,
+        "zalo_id": zalo_id,
+    }
+
+
+
+@app.put("/auth/profile")
+async def update_profile(req: dict, farmer=Depends(get_current_farmer)):
+    zalo_id = farmer.get("zalo_id") or farmer.get("apple_id")
+    if not zalo_id:
+        raise HTTPException(status_code=400, detail="Khong tim thay tai khoan")
+    
+    update_data = {}
+    if req.get("full_name"):
+        update_data["full_name"] = req["full_name"]
+        update_data["name"] = req["full_name"]
+    if req.get("birth_year"):
+        update_data["birth_year"] = int(req["birth_year"])
+    if req.get("phone"):
+        update_data["phone"] = req["phone"]
+    if req.get("coffee_weight") is not None:
+        update_data["coffee_weight"] = float(req["coffee_weight"])
+    
+    if not update_data:
+        raise HTTPException(status_code=400, detail="Khong co du lieu de cap nhat")
+    
+    key = "zalo_id" if farmer.get("zalo_id") else "apple_id"
+    await db["app_users"].update_one(
+        {key: zalo_id},
+        {"$set": update_data}
+    )
+    return {"status": "ok", "message": "Cap nhat thanh cong"}
+
+@app.delete("/auth/me")
+async def delete_account(farmer=Depends(get_current_farmer)):
+    zalo_id = farmer.get("zalo_id")
+    if not zalo_id:
+        raise HTTPException(status_code=400, detail="Khong tim thay tai khoan")
+    await db["app_users"].delete_one({"zalo_id": zalo_id})
+    return {"status": "ok", "message": "Tai khoan da bi xoa"}
+
+@app.post("/auth/apple")
+async def auth_apple(req: dict):
+    import jwt as pyjwt
+    identity_token = req.get("identity_token")
+    full_name = req.get("full_name", "")
+    if not identity_token:
+        raise HTTPException(status_code=400, detail="Thieu identity_token")
+    try:
+        decoded = pyjwt.decode(identity_token, options={"verify_signature": False})
+        apple_id = decoded.get("sub")
+        email = decoded.get("email", "")
+    except Exception:
+        raise HTTPException(status_code=401, detail="Identity token khong hop le")
+    if not apple_id:
+        raise HTTPException(status_code=401, detail="Khong lay duoc Apple ID")
+    existing = await db["app_users"].find_one({"apple_id": apple_id})
+    is_new = existing is None
+    if is_new:
+        await db["app_users"].insert_one({
+            "apple_id": apple_id,
+            "name": full_name or email or "Apple User",
+            "email": email,
+            "role": "farmer",
+            "created_at": datetime.now(VN_TZ),
+        })
+        saved_full_name = full_name or ""
+    else:
+        if full_name:
+            await db["app_users"].update_one(
+                {"apple_id": apple_id},
+                {"$set": {"name": full_name}}
+            )
+        saved_full_name = existing.get("full_name") or full_name or ""
+    token = create_token({"sub": apple_id, "type": "farmer"}, expire_minutes=FARMER_TOKEN_EXPIRE_MINUTES)
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "name": full_name or email or "Apple User",
+        "full_name": saved_full_name,
+        "apple_id": apple_id,
+        "is_new_user": is_new,
+    }
+
+
+@app.post("/agent/apple-login")
+async def agent_apple_login(req: dict):
+    import jwt as pyjwt
+    identity_token = req.get("identity_token")
+    full_name = req.get("full_name", "")
+    if not identity_token:
+        raise HTTPException(status_code=400, detail="Thieu identity_token")
+    try:
+        decoded = pyjwt.decode(identity_token, options={"verify_signature": False})
+        apple_id = decoded.get("sub")
+        email = decoded.get("email", "")
+    except Exception:
+        raise HTTPException(status_code=401, detail="Identity token khong hop le")
+    if not apple_id:
+        raise HTTPException(status_code=401, detail="Khong lay duoc Apple ID")
+    existing = await db["agents"].find_one({"apple_id": apple_id})
+    if not existing:
+        raise HTTPException(status_code=403, detail="Tai khoan dai ly chua duoc dang ky. Vui long lien he NNS.")
+    await db["agents"].update_one(
+        {"apple_id": apple_id},
+        {"$set": {"display_name": full_name or existing.get("display_name", "")}}
+    )
+    token = create_token({"sub": apple_id, "type": "agent"}, expire_minutes=FARMER_TOKEN_EXPIRE_MINUTES)
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "name": full_name or existing.get("display_name", ""),
+        "apple_id": apple_id,
+    }
+
+@app.delete("/agent/me")
+async def agent_delete_account(agent=Depends(get_current_agent)):
+    agent_id = str(agent["_id"])
+    await db["agents"].delete_one({"_id": ObjectId(agent_id)})
+    return {"status": "ok", "message": "Tai khoan dai ly da bi xoa"}
 
 @app.get("/agent/me")
 async def agent_me(agent=Depends(get_current_agent)):
@@ -1383,3 +1641,28 @@ async def get_all_posts(limit: int = 20, skip: int = 0):
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
+
+# ─── VIDEO ENDPOINTS ───────────────────────────────────────────────
+@app.get("/videos")
+async def get_videos():
+    try:
+        cursor = db["videos"].find({}, {"_id": 0}).sort("created_at", -1).limit(20)
+        videos = await cursor.to_list(length=20)
+        return {"videos": videos}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/videos")
+async def create_video(data: dict):
+    try:
+        video = {
+            "title": data.get("title", ""),
+            "url": data.get("url", ""),
+            "thumbnail": data.get("thumbnail", ""),
+            "created_at": data.get("created_at", ""),
+        }
+        db["videos"].insert_one(video)
+        return {"status": "ok"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
